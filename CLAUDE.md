@@ -15,8 +15,15 @@ Chemistry reasoning benchmark for LLMs — focused on tasks that require genuine
 - oMeBench: process-based evaluation (mechanisms, not just products)
 - MolQuest: agentic/interactive evaluation paradigm
 
+## Data Dependencies
+- `mmp-adme-database` repo (sibling dir) provides MMP pair/transform data
+  - 618K+ matched molecular pairs across 14 ADME endpoints
+  - Data from ChEMBL, TDC, BindingDB
+
 ## Repo Structure
 - `docs/` — benchmark design docs, landscape analysis
-- `tasks/` — task definitions organized by tier
+- `tasks/adme/` — ADME reasoning benchmark generator and tasks
+  - `generate_benchmark.py` — reads from mmp-adme-database, generates 5 task types
+  - `benchmark_tasks.json` — generated benchmark (762 tasks)
 - `data/` — task data and examples
 - `eval/` — evaluation/reward functions
