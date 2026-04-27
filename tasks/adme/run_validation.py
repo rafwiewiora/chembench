@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -172,7 +173,7 @@ def call_claude_via_cli(prompt):
     try:
         result = subprocess.run(
             ["claude", "-p", full_prompt, "--model", "sonnet"],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=300,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
@@ -182,7 +183,7 @@ def call_claude_via_cli(prompt):
     except FileNotFoundError:
         return "[ERROR: claude CLI not found. Set ANTHROPIC_API_KEY or install claude CLI]"
     except subprocess.TimeoutExpired:
-        return "[ERROR: CLI call timed out after 120s]"
+        return "[ERROR: CLI call timed out after 300s]"
     except Exception as e:
         return f"[ERROR: {e}]"
 
@@ -254,8 +255,325 @@ def render_task_visualization(task):
     return ""
 
 
+# ---------------------------------------------------------------------------
+# Auto-assessment
+# ---------------------------------------------------------------------------
+
+def extract_numbers(text):
+    """Extract all numbers from text."""
+    return [float(x) for x in re.findall(r'[-+]?\d*\.?\d+', text)]
+
+
+def assess_property_delta(task, response):
+    """Auto-assess a property_delta task."""
+    gt = task["ground_truth"]
+    actual_delta = gt["delta"]
+    actual_val = gt["value_B"]
+    actual_direction = gt["direction"]
+
+    checks = {}
+
+    if "[ERROR" in response:
+        return {"grade": "error", "score": 0, "checks": {}, "summary": "Model response timed out or errored."}
+
+    resp_lower = response.lower()
+    predicted_beneficial = any(w in resp_lower for w in ["improve", "beneficial", "better", "lower clearance", "more stable", "increased stability", "reduced clearance", "decrease in clearance"])
+    predicted_detrimental = any(w in resp_lower for w in ["worsen", "detrimental", "higher clearance", "less stable", "decreased stability", "increased clearance", "increase in clearance"])
+
+    if actual_direction == "beneficial":
+        checks["direction"] = predicted_beneficial and not predicted_detrimental
+    else:
+        checks["direction"] = predicted_detrimental and not predicted_beneficial
+
+    numbers = extract_numbers(response)
+    closest = None
+    if numbers:
+        diffs = [abs(n - actual_val) for n in numbers]
+        closest = numbers[diffs.index(min(diffs))]
+        checks["value_within_0.3"] = min(diffs) < 0.3
+        checks["value_within_0.5"] = min(diffs) < 0.5
+    else:
+        checks["value_within_0.3"] = False
+        checks["value_within_0.5"] = False
+
+    reasoning_keywords = ["lipophil", "metaboli", "oxidat", "cyp", "electron", "steric",
+                         "soft spot", "demethyl", "dealkyl", "hydroxyl", "conjugat",
+                         "glucuron", "clearance", "half-life", "binding"]
+    n_keywords = sum(1 for kw in reasoning_keywords if kw in resp_lower)
+    checks["has_reasoning"] = n_keywords >= 2
+
+    score = (checks.get("direction", False) * 40 +
+             checks.get("value_within_0.5", False) * 20 +
+             checks.get("value_within_0.3", False) * 10 +
+             checks.get("has_reasoning", False) * 30)
+
+    if score >= 80:
+        grade = "good"
+    elif score >= 50:
+        grade = "partial"
+    elif score >= 20:
+        grade = "weak"
+    else:
+        grade = "poor"
+
+    predicted_str = f"{closest:.3f}" if closest else "not found"
+    summary = (f"Direction {'correct' if checks.get('direction') else 'WRONG'} "
+               f"(actual: {actual_direction}). "
+               f"Predicted value: {predicted_str}, actual: {actual_val:.3f} "
+               f"(delta={actual_delta:+.3f}). "
+               f"Reasoning depth: {n_keywords} keywords found.")
+
+    return {"grade": grade, "score": score, "checks": checks, "summary": summary}
+
+
+def assess_series_completion(task, response):
+    gt = task["ground_truth"]
+    actual_val = gt["value"]
+
+    if "[ERROR" in response:
+        return {"grade": "error", "score": 0, "checks": {}, "summary": "Model response timed out or errored."}
+
+    checks = {}
+    numbers = extract_numbers(response)
+    closest = None
+    if numbers:
+        diffs = [abs(n - actual_val) for n in numbers]
+        closest = numbers[diffs.index(min(diffs))]
+        checks["value_within_0.3"] = min(diffs) < 0.3
+        checks["value_within_0.5"] = min(diffs) < 0.5
+    else:
+        checks["value_within_0.3"] = False
+        checks["value_within_0.5"] = False
+
+    resp_lower = response.lower()
+    checks["discusses_trends"] = any(w in resp_lower for w in ["trend", "series", "pattern", "correlat", "increase", "decrease", "relationship"])
+    checks["mentions_uncertainty"] = any(w in resp_lower for w in ["confiden", "uncertain", "caveat", "limit", "approximate", "error", "variab"])
+
+    score = (checks.get("value_within_0.5", False) * 30 +
+             checks.get("value_within_0.3", False) * 20 +
+             checks.get("discusses_trends", False) * 30 +
+             checks.get("mentions_uncertainty", False) * 20)
+
+    if score >= 70:
+        grade = "good"
+    elif score >= 40:
+        grade = "partial"
+    else:
+        grade = "weak" if score > 0 else "poor"
+
+    predicted_str = f"{closest:.3f}" if closest else "not found"
+    summary = (f"Predicted: {predicted_str}, actual: {actual_val:.3f}. "
+               f"Within 0.3: {'yes' if checks.get('value_within_0.3') else 'no'}, "
+               f"within 0.5: {'yes' if checks.get('value_within_0.5') else 'no'}. "
+               f"Series reasoning: {'yes' if checks.get('discusses_trends') else 'no'}.")
+
+    return {"grade": grade, "score": score, "checks": checks, "summary": summary}
+
+
+def assess_transform_ranking(task, response):
+    gt = task["ground_truth"]
+    options = gt["options"]
+    best = gt["best_transform"]
+
+    if "[ERROR" in response:
+        return {"grade": "error", "score": 0, "checks": {}, "summary": "Model response timed out or errored."}
+
+    checks = {}
+    resp_lower = response.lower()
+
+    option_letters = [chr(65 + i) for i in range(len(options))]
+    first_mentioned = None
+    for letter in option_letters:
+        patterns = [f"option {letter.lower()}", f"option {letter}", f"{letter})", f"{letter}."]
+        for pat in patterns:
+            idx = resp_lower.find(pat)
+            if idx != -1 and (first_mentioned is None or idx < first_mentioned[1]):
+                first_mentioned = (letter, idx)
+
+    ranked_in_response = []
+    for letter in option_letters:
+        for pat in [f"option {letter.lower()}", f"option {letter}", f"{letter})", f"{letter}."]:
+            if pat in resp_lower:
+                ranked_in_response.append(letter)
+                break
+
+    best_idx = None
+    for i, o in enumerate(options):
+        if o["transform"] == best:
+            best_idx = i
+            break
+
+    if best_idx is not None and first_mentioned:
+        checks["top1_correct"] = first_mentioned[0] == chr(65 + best_idx)
+    else:
+        checks["top1_correct"] = False
+
+    checks["has_reasoning"] = any(w in resp_lower for w in [
+        "lipophil", "metaboli", "electron", "steric", "polar", "size",
+        "bulk", "hydrogen bond", "cyp", "soft spot", "oxidat"])
+    checks["identifies_worst"] = any(w in resp_lower for w in ["worsen", "worst", "least", "detrimental", "increase clearance"])
+
+    score = (checks.get("top1_correct", False) * 40 +
+             checks.get("has_reasoning", False) * 35 +
+             checks.get("identifies_worst", False) * 25)
+
+    if score >= 70:
+        grade = "good"
+    elif score >= 40:
+        grade = "partial"
+    else:
+        grade = "weak" if score > 0 else "poor"
+
+    summary = (f"Top-1 correct: {'yes' if checks.get('top1_correct') else 'no'}. "
+               f"Has reasoning: {'yes' if checks.get('has_reasoning') else 'no'}. "
+               f"Identifies worst: {'yes' if checks.get('identifies_worst') else 'no'}.")
+
+    return {"grade": grade, "score": score, "checks": checks, "summary": summary}
+
+
+def assess_tradeoff(task, response):
+    gt = task["ground_truth"]
+    beneficial = set(gt.get("beneficial_endpoints", []))
+    detrimental = set(gt.get("detrimental_endpoints", []))
+
+    if "[ERROR" in response:
+        return {"grade": "error", "score": 0, "checks": {}, "summary": "Model response timed out or errored."}
+
+    checks = {}
+    resp_lower = response.lower()
+
+    checks["identifies_tradeoff"] = any(w in resp_lower for w in [
+        "trade", "tradeoff", "trade-off", "balance", "on the other hand",
+        "however", "while", "improves.*worsen", "benefit.*cost"])
+
+    checks["has_mechanism"] = any(w in resp_lower for w in [
+        "lipophil", "electron", "polar", "metaboli", "binding",
+        "aromatic", "hydrogen bond", "steric", "hydrophob", "basicity"])
+
+    checks["suggests_alternative"] = any(w in resp_lower for w in [
+        "alternative", "instead", "suggest", "consider", "could try",
+        "might use", "another option", "replace with"])
+
+    n_beneficial_mentioned = sum(1 for ep in beneficial if ep.lower().replace(" ", "") in resp_lower.replace(" ", ""))
+    n_detrimental_mentioned = sum(1 for ep in detrimental if ep.lower().replace(" ", "") in resp_lower.replace(" ", ""))
+    total_endpoints = len(beneficial) + len(detrimental)
+    if total_endpoints > 0:
+        checks["endpoint_coverage"] = (n_beneficial_mentioned + n_detrimental_mentioned) / total_endpoints > 0.5
+    else:
+        checks["endpoint_coverage"] = True
+
+    score = (checks.get("identifies_tradeoff", False) * 25 +
+             checks.get("has_mechanism", False) * 30 +
+             checks.get("suggests_alternative", False) * 20 +
+             checks.get("endpoint_coverage", False) * 25)
+
+    if score >= 70:
+        grade = "good"
+    elif score >= 40:
+        grade = "partial"
+    else:
+        grade = "weak" if score > 0 else "poor"
+
+    summary = (f"Tradeoff identified: {'yes' if checks.get('identifies_tradeoff') else 'no'}. "
+               f"Mechanistic reasoning: {'yes' if checks.get('has_mechanism') else 'no'}. "
+               f"Alternative suggested: {'yes' if checks.get('suggests_alternative') else 'no'}. "
+               f"Endpoint coverage: {n_beneficial_mentioned + n_detrimental_mentioned}/{total_endpoints}.")
+
+    return {"grade": grade, "score": score, "checks": checks, "summary": summary}
+
+
+def assess_explanation(task, response):
+    gt = task["ground_truth"]
+
+    if "[ERROR" in response:
+        return {"grade": "error", "score": 0, "checks": {}, "summary": "Model response timed out or errored."}
+
+    checks = {}
+    resp_lower = response.lower()
+
+    mechanism_keywords = ["lipophil", "electron", "steric", "metaboli", "oxidat",
+                         "cyp", "conjugat", "glucuron", "demethyl", "hydroxyl",
+                         "polar", "hydrogen bond", "hydrophob", "aromatic",
+                         "resonance", "induct", "basicity", "acidity", "pka",
+                         "log ?p", "clearance", "half-life", "soft spot", "binding"]
+    n_mechanism = sum(1 for kw in mechanism_keywords if kw in resp_lower)
+    checks["mechanistic_depth"] = n_mechanism >= 3
+
+    checks["discusses_context"] = any(w in resp_lower for w in [
+        "context", "depend", "scaffold", "environment", "substrat",
+        "position", "substitut", "neighbor", "adjacent", "surround"])
+
+    checks["discusses_reversal"] = any(w in resp_lower for w in [
+        "opposite", "reversal", "reverse", "exception", "counter",
+        "however", "in contrast", "paradox", "unexpected"])
+
+    score = (checks.get("mechanistic_depth", False) * 40 +
+             checks.get("discusses_context", False) * 30 +
+             checks.get("discusses_reversal", False) * 30)
+
+    if score >= 70:
+        grade = "good"
+    elif score >= 40:
+        grade = "partial"
+    else:
+        grade = "weak" if score > 0 else "poor"
+
+    summary = (f"Mechanistic depth: {n_mechanism} keywords ({checks.get('mechanistic_depth', False)}). "
+               f"Context-aware: {'yes' if checks.get('discusses_context') else 'no'}. "
+               f"Reversal scenario: {'yes' if checks.get('discusses_reversal') else 'no'}.")
+
+    return {"grade": grade, "score": score, "checks": checks, "summary": summary}
+
+
+def auto_assess(task, response):
+    """Route to the right assessor based on task type."""
+    tt = task["task_type"]
+    if tt == "property_delta":
+        return assess_property_delta(task, response)
+    elif tt == "series_completion":
+        return assess_series_completion(task, response)
+    elif tt == "transform_ranking":
+        return assess_transform_ranking(task, response)
+    elif tt == "tradeoff_analysis":
+        return assess_tradeoff(task, response)
+    elif tt == "transform_explain":
+        return assess_explanation(task, response)
+    return {"grade": "unknown", "score": 0, "checks": {}, "summary": "Unknown task type."}
+
+
+def summarize_response(response, max_sentences=4):
+    """Extract the first few substantive sentences as a summary."""
+    if "[ERROR" in response:
+        return response
+
+    sentences = re.split(r'(?<=[.!?])\s+', response.strip())
+    substantive = [s for s in sentences if len(s) > 30 and not s.startswith("*")]
+    summary = " ".join(substantive[:max_sentences])
+    if len(summary) > 500:
+        summary = summary[:497] + "..."
+    return summary
+
+
 def generate_html_report(results, output_path, model_name):
     """Generate the full interactive HTML report."""
+    grade_colors = {
+        "good": "#22c55e",
+        "partial": "#eab308",
+        "weak": "#f97316",
+        "poor": "#ef4444",
+        "error": "#94a3b8",
+        "unknown": "#94a3b8",
+    }
+    grade_bg = {
+        "good": "#f0fdf4",
+        "partial": "#fefce8",
+        "weak": "#fff7ed",
+        "poor": "#fef2f2",
+        "error": "#f8fafc",
+        "unknown": "#f8fafc",
+    }
+
+    assessments = []
     task_blocks = []
     for i, r in enumerate(results):
         task = r["task"]
@@ -265,6 +583,10 @@ def generate_html_report(results, output_path, model_name):
         eval_criteria = task.get("evaluation_criteria", {})
         tt = task["task_type"]
         endpoint = task.get("endpoint_label", task.get("endpoint", ""))
+
+        assessment = auto_assess(task, response)
+        assessments.append(assessment)
+        resp_summary = summarize_response(response)
 
         gt_html = ""
         for k, v in gt.items():
@@ -292,13 +614,32 @@ def generate_html_report(results, output_path, model_name):
             "transform_explain": "#d97706",
         }
         color = type_colors.get(tt, "#6b7280")
+        g_color = grade_colors.get(assessment["grade"], "#94a3b8")
+        g_bg = grade_bg.get(assessment["grade"], "#f8fafc")
+
+        checks_html = ""
+        for ck, cv in assessment["checks"].items():
+            icon = "&#10003;" if cv else "&#10007;"
+            ccolor = "#22c55e" if cv else "#ef4444"
+            checks_html += f'<span class="check-item" style="color:{ccolor};">{icon} {html.escape(ck)}</span> '
 
         block = f"""
-        <div class="task-card" id="task-{i}">
+        <div class="task-card" data-grade="{assessment['grade']}" id="task-{i}">
             <div class="task-header" style="border-left-color: {color};">
                 <span class="task-badge" style="background: {color};">{html.escape(tt)}</span>
                 <span class="task-endpoint">{html.escape(endpoint)}</span>
+                <span class="grade-badge" style="background: {g_color};">{assessment['grade'].upper()} ({assessment['score']})</span>
                 <span class="task-number">Task {i+1}/{len(results)}</span>
+            </div>
+
+            <div class="assessment-bar" style="background: {g_bg}; border-left: 4px solid {g_color};">
+                <div class="assessment-summary">{html.escape(assessment['summary'])}</div>
+                <div class="assessment-checks">{checks_html}</div>
+            </div>
+
+            <div class="section summary-section">
+                <h3>Response Summary</h3>
+                <div class="summary-box">{html.escape(resp_summary)}</div>
             </div>
 
             <div class="section">
@@ -306,14 +647,18 @@ def generate_html_report(results, output_path, model_name):
                 <div class="mol-container">{viz}</div>
             </div>
 
-            <div class="section">
-                <h3>Prompt</h3>
-                <div class="prompt-box">{html.escape(task['prompt'])}</div>
+            <div class="section collapsible">
+                <h3 class="collapsible-header" onclick="toggleSection(this)">Prompt <span class="collapse-icon">&#9654;</span></h3>
+                <div class="collapsible-content" style="display:none;">
+                    <div class="prompt-box">{html.escape(task['prompt'])}</div>
+                </div>
             </div>
 
-            <div class="section">
-                <h3>Model Response <span class="model-tag">{html.escape(model_name)}</span></h3>
-                <div class="response-box">{html.escape(response)}</div>
+            <div class="section collapsible">
+                <h3 class="collapsible-header" onclick="toggleSection(this)">Full Response <span class="model-tag">{html.escape(model_name)}</span> <span class="collapse-icon">&#9654;</span></h3>
+                <div class="collapsible-content" style="display:none;">
+                    <div class="response-box">{html.escape(response)}</div>
+                </div>
             </div>
 
             <div class="section gt-section">
@@ -321,9 +666,11 @@ def generate_html_report(results, output_path, model_name):
                 <div class="gt-box">{gt_html}</div>
             </div>
 
-            <div class="section criteria-section">
-                <h3>Evaluation Criteria</h3>
-                <div class="criteria-box">{criteria_html}</div>
+            <div class="section collapsible">
+                <h3 class="collapsible-header" onclick="toggleSection(this)">Evaluation Criteria <span class="collapse-icon">&#9654;</span></h3>
+                <div class="collapsible-content" style="display:none;">
+                    <div class="criteria-box">{criteria_html}</div>
+                </div>
             </div>
 
             <div class="section comment-section">
@@ -356,6 +703,31 @@ def generate_html_report(results, output_path, model_name):
         task_blocks.append(block)
 
     tasks_html = "\n".join(task_blocks)
+
+    # Aggregate stats for dashboard
+    from collections import Counter
+    grade_counts = Counter(a["grade"] for a in assessments)
+    scores = [a["score"] for a in assessments if a["grade"] != "error"]
+    avg_score = sum(scores) / len(scores) if scores else 0
+    n_errors = grade_counts.get("error", 0)
+
+    by_type_scores = {}
+    for a, r in zip(assessments, results):
+        tt = r["task"]["task_type"]
+        by_type_scores.setdefault(tt, []).append(a["score"])
+    type_avg_html = ""
+    for tt in sorted(by_type_scores):
+        s = by_type_scores[tt]
+        avg = sum(s) / len(s) if s else 0
+        type_avg_html += f'<div class="type-score"><span class="type-label">{html.escape(tt)}</span><span class="type-avg">{avg:.0f}</span></div>'
+
+    grade_bar_parts = ""
+    for g in ["good", "partial", "weak", "poor", "error"]:
+        cnt = grade_counts.get(g, 0)
+        if cnt > 0:
+            pct = cnt / len(assessments) * 100
+            gc = grade_colors.get(g, "#94a3b8")
+            grade_bar_parts += f'<div class="gbar-seg" style="width:{pct}%;background:{gc};" title="{g}: {cnt}"></div>'
 
     full_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -393,6 +765,38 @@ def generate_html_report(results, output_path, model_name):
   }}
   .filter-btn:hover {{ border-color: #94a3b8; }}
   .filter-btn.active {{ background: #1e293b; color: white; border-color: #1e293b; }}
+  .dashboard {{
+    background: white; border-radius: 12px; padding: 20px 24px; margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }}
+  .dashboard h2 {{ font-size: 1rem; margin-bottom: 14px; color: #475569; }}
+  .dashboard-grid {{
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 16px; margin-bottom: 16px;
+  }}
+  .dash-stat {{ text-align: center; }}
+  .dash-val {{ font-size: 1.8rem; font-weight: 800; }}
+  .dash-label {{ font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px; color: #94a3b8; }}
+  .grade-bar {{
+    display: flex; height: 28px; border-radius: 6px; overflow: hidden; margin-bottom: 10px;
+  }}
+  .gbar-seg {{ min-width: 2px; transition: width 0.3s; }}
+  .grade-legend {{
+    display: flex; gap: 14px; font-size: 0.78rem; color: #64748b; flex-wrap: wrap;
+  }}
+  .grade-legend span {{
+    display: flex; align-items: center; gap: 4px;
+  }}
+  .grade-legend .dot {{
+    width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+  }}
+  .type-scores {{ display: flex; gap: 16px; flex-wrap: wrap; margin-top: 14px; }}
+  .type-score {{
+    display: flex; flex-direction: column; align-items: center;
+    background: #f8fafc; border-radius: 8px; padding: 8px 14px;
+  }}
+  .type-label {{ font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; }}
+  .type-avg {{ font-size: 1.3rem; font-weight: 700; }}
   .task-card {{
     background: white; border-radius: 12px; margin-bottom: 28px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden;
@@ -400,18 +804,41 @@ def generate_html_report(results, output_path, model_name):
   .task-header {{
     padding: 14px 20px; background: #f8fafc; border-bottom: 1px solid #e2e8f0;
     border-left: 5px solid #6b7280; display: flex; align-items: center; gap: 12px;
+    flex-wrap: wrap;
   }}
   .task-badge {{
     color: white; font-size: 0.75rem; font-weight: 700; padding: 3px 10px;
     border-radius: 12px; text-transform: uppercase; letter-spacing: 0.5px;
   }}
+  .grade-badge {{
+    color: white; font-size: 0.72rem; font-weight: 700; padding: 3px 10px;
+    border-radius: 12px; letter-spacing: 0.5px;
+  }}
   .task-endpoint {{ color: #64748b; font-size: 0.85rem; }}
   .task-number {{ margin-left: auto; color: #94a3b8; font-size: 0.8rem; }}
+  .assessment-bar {{
+    padding: 12px 20px; border-bottom: 1px solid #e2e8f0;
+  }}
+  .assessment-summary {{ font-size: 0.88rem; color: #1e293b; margin-bottom: 6px; }}
+  .assessment-checks {{ display: flex; gap: 12px; flex-wrap: wrap; }}
+  .check-item {{ font-size: 0.8rem; font-weight: 600; }}
+  .summary-section .summary-box {{
+    background: #eff6ff; padding: 12px; border-radius: 8px; font-size: 0.88rem;
+    border: 1px solid #bfdbfe; color: #1e40af;
+  }}
   .section {{ padding: 16px 20px; border-bottom: 1px solid #f1f5f9; }}
   .section h3 {{
     font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.8px;
     color: #94a3b8; margin-bottom: 10px;
   }}
+  .collapsible-header {{
+    cursor: pointer; user-select: none;
+  }}
+  .collapsible-header:hover {{ color: #64748b; }}
+  .collapse-icon {{
+    font-size: 0.7rem; display: inline-block; transition: transform 0.2s;
+  }}
+  .collapse-icon.open {{ transform: rotate(90deg); }}
   .mol-container {{ text-align: center; overflow-x: auto; }}
   .mol-container svg {{ max-width: 100%; height: auto; }}
   .mol-error {{ color: #dc2626; font-style: italic; padding: 12px; }}
@@ -477,6 +904,27 @@ def generate_html_report(results, output_path, model_name):
   Generated from MMP-ADME database
 </p>
 
+<div class="dashboard">
+  <h2>Auto-Assessment Dashboard</h2>
+  <div class="dashboard-grid">
+    <div class="dash-stat"><div class="dash-val">{avg_score:.0f}</div><div class="dash-label">Avg Score</div></div>
+    <div class="dash-stat"><div class="dash-val" style="color:#22c55e;">{grade_counts.get('good', 0)}</div><div class="dash-label">Good</div></div>
+    <div class="dash-stat"><div class="dash-val" style="color:#eab308;">{grade_counts.get('partial', 0)}</div><div class="dash-label">Partial</div></div>
+    <div class="dash-stat"><div class="dash-val" style="color:#f97316;">{grade_counts.get('weak', 0)}</div><div class="dash-label">Weak</div></div>
+    <div class="dash-stat"><div class="dash-val" style="color:#ef4444;">{grade_counts.get('poor', 0)}</div><div class="dash-label">Poor</div></div>
+    <div class="dash-stat"><div class="dash-val" style="color:#94a3b8;">{n_errors}</div><div class="dash-label">Errors</div></div>
+  </div>
+  <div class="grade-bar">{grade_bar_parts}</div>
+  <div class="grade-legend">
+    <span><span class="dot" style="background:#22c55e;"></span> Good (>=70)</span>
+    <span><span class="dot" style="background:#eab308;"></span> Partial (40-69)</span>
+    <span><span class="dot" style="background:#f97316;"></span> Weak (1-39)</span>
+    <span><span class="dot" style="background:#ef4444;"></span> Poor (0)</span>
+    <span><span class="dot" style="background:#94a3b8;"></span> Error</span>
+  </div>
+  <div class="type-scores">{type_avg_html}</div>
+</div>
+
 <div class="stats-bar">
   <div class="stat"><div class="stat-val">{len(results)}</div><div class="stat-label">Tasks</div></div>
   <div class="stat"><div class="stat-val" id="rated-count">0</div><div class="stat-label">Rated</div></div>
@@ -484,12 +932,20 @@ def generate_html_report(results, output_path, model_name):
 </div>
 
 <div class="filter-bar">
-  <button class="filter-btn active" onclick="filterTasks('all')">All</button>
-  <button class="filter-btn" onclick="filterTasks('property_delta')" style="border-color:#2563eb;">property_delta</button>
-  <button class="filter-btn" onclick="filterTasks('series_completion')" style="border-color:#7c3aed;">series_completion</button>
-  <button class="filter-btn" onclick="filterTasks('transform_ranking')" style="border-color:#059669;">transform_ranking</button>
-  <button class="filter-btn" onclick="filterTasks('tradeoff_analysis')" style="border-color:#dc2626;">tradeoff_analysis</button>
-  <button class="filter-btn" onclick="filterTasks('transform_explain')" style="border-color:#d97706;">transform_explain</button>
+  <button class="filter-btn active" onclick="filterTasks('all', 'type')">All</button>
+  <button class="filter-btn" onclick="filterTasks('property_delta', 'type')" style="border-color:#2563eb;">property_delta</button>
+  <button class="filter-btn" onclick="filterTasks('series_completion', 'type')" style="border-color:#7c3aed;">series_completion</button>
+  <button class="filter-btn" onclick="filterTasks('transform_ranking', 'type')" style="border-color:#059669;">transform_ranking</button>
+  <button class="filter-btn" onclick="filterTasks('tradeoff_analysis', 'type')" style="border-color:#dc2626;">tradeoff_analysis</button>
+  <button class="filter-btn" onclick="filterTasks('transform_explain', 'type')" style="border-color:#d97706;">transform_explain</button>
+</div>
+<div class="filter-bar">
+  <button class="filter-btn grade-filter active" onclick="filterTasks('all', 'grade')">All grades</button>
+  <button class="filter-btn grade-filter" onclick="filterTasks('good', 'grade')" style="border-color:#22c55e;">Good</button>
+  <button class="filter-btn grade-filter" onclick="filterTasks('partial', 'grade')" style="border-color:#eab308;">Partial</button>
+  <button class="filter-btn grade-filter" onclick="filterTasks('weak', 'grade')" style="border-color:#f97316;">Weak</button>
+  <button class="filter-btn grade-filter" onclick="filterTasks('poor', 'grade')" style="border-color:#ef4444;">Poor</button>
+  <button class="filter-btn grade-filter" onclick="filterTasks('error', 'grade')" style="border-color:#94a3b8;">Error</button>
 </div>
 
 <div class="controls">
@@ -507,6 +963,22 @@ const STORAGE_KEY = 'chembench_adme_validation_comments';
 const N_TASKS = {len(results)};
 
 const taskTypes = {json.dumps([r['task']['task_type'] for r in results])};
+const taskGrades = {json.dumps([a['grade'] for a in assessments])};
+
+let activeTypeFilter = 'all';
+let activeGradeFilter = 'all';
+
+function toggleSection(header) {{
+  const content = header.nextElementSibling;
+  const icon = header.querySelector('.collapse-icon');
+  if (content.style.display === 'none') {{
+    content.style.display = '';
+    if (icon) icon.classList.add('open');
+  }} else {{
+    content.style.display = 'none';
+    if (icon) icon.classList.remove('open');
+  }}
+}}
 
 function saveComment(idx) {{
   const data = loadAll();
@@ -563,6 +1035,7 @@ function exportComments() {{
     enriched[idx] = {{
       ...entry,
       task_type: taskTypes[parseInt(idx)] || 'unknown',
+      auto_grade: taskGrades[parseInt(idx)] || 'unknown',
     }};
   }}
   const blob = new Blob([JSON.stringify(enriched, null, 2)], {{type: 'application/json'}});
@@ -595,16 +1068,24 @@ function handleImport(event) {{
   reader.readAsText(file);
 }}
 
-function filterTasks(type) {{
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
+function applyFilters() {{
   document.querySelectorAll('.task-card').forEach((card, i) => {{
-    if (type === 'all' || taskTypes[i] === type) {{
-      card.style.display = '';
-    }} else {{
-      card.style.display = 'none';
-    }}
+    const typeMatch = activeTypeFilter === 'all' || taskTypes[i] === activeTypeFilter;
+    const gradeMatch = activeGradeFilter === 'all' || taskGrades[i] === activeGradeFilter;
+    card.style.display = (typeMatch && gradeMatch) ? '' : 'none';
   }});
+}}
+
+function filterTasks(value, dimension) {{
+  if (dimension === 'type') {{
+    activeTypeFilter = value;
+    document.querySelectorAll('.filter-btn:not(.grade-filter)').forEach(b => b.classList.remove('active'));
+  }} else {{
+    activeGradeFilter = value;
+    document.querySelectorAll('.filter-btn.grade-filter').forEach(b => b.classList.remove('active'));
+  }}
+  event.target.classList.add('active');
+  applyFilters();
 }}
 
 restoreAll();
