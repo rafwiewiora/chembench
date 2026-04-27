@@ -158,10 +158,9 @@ def call_claude(prompt, model="claude-sonnet-4-6", max_tokens=2000):
         return f"[API ERROR: {e}]"
 
 
-def call_claude_via_cli(prompt):
+def call_claude_via_cli(prompt, max_retries=3):
     """Fall back to calling Claude Code CLI as a subprocess."""
     import subprocess
-    import tempfile
 
     system = (
         "You are an expert medicinal chemist. Answer precisely with mechanistic "
@@ -170,22 +169,34 @@ def call_claude_via_cli(prompt):
     )
     full_prompt = f"{system}\n\n{prompt}"
 
-    try:
-        result = subprocess.run(
-            ["claude", "-p", full_prompt, "--model", "sonnet"],
-            capture_output=True, text=True, timeout=300,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-        else:
-            logger.error(f"CLI call failed: {result.stderr[:200]}")
-            return f"[CLI ERROR: {result.stderr[:200]}]"
-    except FileNotFoundError:
-        return "[ERROR: claude CLI not found. Set ANTHROPIC_API_KEY or install claude CLI]"
-    except subprocess.TimeoutExpired:
-        return "[ERROR: CLI call timed out after 300s]"
-    except Exception as e:
-        return f"[ERROR: {e}]"
+    for attempt in range(max_retries):
+        try:
+            result = subprocess.run(
+                ["claude", "-p", full_prompt, "--model", "sonnet"],
+                capture_output=True, text=True, timeout=300,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+            else:
+                logger.error(f"CLI call failed (attempt {attempt+1}): {result.stderr[:200]}")
+                if attempt < max_retries - 1:
+                    wait = 30 * (2 ** attempt)
+                    logger.info(f"Retrying in {wait}s...")
+                    time.sleep(wait)
+                    continue
+                return f"[CLI ERROR: {result.stderr[:200]}]"
+        except FileNotFoundError:
+            return "[ERROR: claude CLI not found. Set ANTHROPIC_API_KEY or install claude CLI]"
+        except subprocess.TimeoutExpired:
+            return "[ERROR: CLI call timed out after 300s]"
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = 30 * (2 ** attempt)
+                logger.info(f"Retrying in {wait}s after error: {e}")
+                time.sleep(wait)
+                continue
+            return f"[ERROR: {e}]"
+    return "[ERROR: max retries exceeded]"
 
 
 def sample_tasks(benchmark, n_per_type=6, seed=123):
@@ -1122,6 +1133,20 @@ def main():
 
         if i < len(tasks) - 1:
             time.sleep(0.5)
+
+    failed = [(i, r) for i, r in enumerate(results) if "[ERROR" in r["response"] or "[CLI ERROR" in r["response"]]
+    if failed:
+        logger.info(f"Retrying {len(failed)} failed tasks after 60s cooldown...")
+        time.sleep(60)
+        for idx, r in failed:
+            logger.info(f"[retry {idx+1}/{len(tasks)}] Re-running {r['task']['task_type']}...")
+            response = call_claude(r["task"]["prompt"], model=args.model)
+            if "[ERROR" not in response and "[CLI ERROR" not in response:
+                results[idx]["response"] = response
+                logger.info(f"  -> retry succeeded")
+            else:
+                logger.warning(f"  -> retry still failed")
+            time.sleep(2)
 
     generate_html_report(results, output_path, args.model)
     logger.info(f"Done! Open {output_path} in your browser.")
