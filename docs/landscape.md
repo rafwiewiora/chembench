@@ -30,6 +30,14 @@
 | MolQuest | 2026 | Agentic: model requests NMR/MS/IR data iteratively |
 | Synthegy | 2025 | LLM-guided retrosynthesis search with natural language strategy |
 
+### MMP-Based Models & Tools
+| Method | Year | Key Innovation |
+|--------|------|---------------|
+| medchem_moves (Awale/Roche) | 2021 | Exhaustive MMP extraction from ChEMBL at radius 3; frequency-ranked "playbook" of real medchem transforms |
+| MMPT-RAG (Pan/Merck) | 2026 | ChemT5-based foundation model trained on 800K MMPTs from ChEMBL; RAG retrieves reference analogs for controllable generation |
+
+**Relevance to our benchmark:** Both validate MMPs as the right unit of analysis for medchem reasoning. medchem_moves provides transform frequency priors (what chemists actually do); MMPT-RAG generates plausible analogs but can't explain *why* a transform affects a property. Our benchmark fills the reasoning gap — testing whether models understand the mechanistic basis for property changes, not just structural plausibility.
+
 ## The Core Problem
 
 Most benchmarks test **knowledge recall**, not **reasoning**:
@@ -78,3 +86,5 @@ Most benchmarks test **knowledge recall**, not **reasoning**:
 - "Challenging Reaction Prediction": arxiv.org/abs/2501.06669
 - "Chemical intuition in MOF synthesis": doi.org/10.1038/s41467-019-08483-9
 - "AI for Retrosynthesis Needs Expert Knowledge": doi.org/10.1021/jacs.4c00338
+- medchem_moves: doi.org/10.1021/acs.jcim.0c01143 (github.com/mahendra-awale/medchem_moves)
+- MMPT-RAG: arxiv.org/abs/2602.16684
