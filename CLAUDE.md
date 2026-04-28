@@ -23,7 +23,23 @@ Chemistry reasoning benchmark for LLMs — focused on tasks that require genuine
 ## Repo Structure
 - `docs/` — benchmark design docs, landscape analysis
 - `tasks/adme/` — ADME reasoning benchmark generator and tasks
-  - `generate_benchmark.py` — reads from mmp-adme-database, generates 5 task types
-  - `benchmark_tasks.json` — generated benchmark (762 tasks)
+  - `generate_benchmark.py` — reads from mmp-adme-database, generates 8 task types
+  - `benchmark_tasks.json` — generated benchmark (1,787 tasks)
+  - `run_validation.py` — runs tasks through Claude, auto-assesses, generates HTML report
 - `data/` — task data and examples
 - `eval/` — evaluation/reward functions
+
+## Task Types
+1. property_delta — predict property change from transform + explain
+2. series_completion — predict held-out compound in congeneric series
+3. transform_ranking — rank transforms by effect size
+4. tradeoff_analysis — analyze multi-endpoint effects
+5. transform_explain — explain WHY a transform has its observed effect
+6. sacrifice_detection — explain why a worse intermediate was accepted in a 2-step path
+7. strategic_planning — choose the best 2-step path (step 2 effects hidden)
+8. multi_objective_path — navigate tradeoffs across CLint/CYP endpoints
+
+## Auto-assessment Limitations
+Keyword-based auto-scoring (in run_validation.py) is directional only — it catches
+missing reasoning elements but can't distinguish good reasoning from fluent-sounding
+wrong answers. The HTML report's expert rating system is the intended primary eval.
