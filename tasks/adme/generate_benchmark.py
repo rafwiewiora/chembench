@@ -755,6 +755,521 @@ def generate_explanation_tasks(mmp_dir, endpoints=None, n_per_endpoint=20,
 
 
 # ---------------------------------------------------------------------------
+# Task Type 6: Strategic Multi-Step Optimization ("Chess" tasks)
+# ---------------------------------------------------------------------------
+
+def _build_mol_graph(mmp_dir, endpoint):
+    """Build adjacency graph of molecules connected by MMP transforms."""
+    from collections import defaultdict
+
+    pairs_df = load_pairs(mmp_dir, endpoint)
+    if pairs_df.empty:
+        return {}, {}, pairs_df
+
+    adj = defaultdict(list)
+    mol_values = {}
+
+    for _, row in pairs_df.iterrows():
+        s1, s2 = row["smiles_1"], row["smiles_2"]
+        mol_values[s1] = row["value_1"]
+        mol_values[s2] = row["value_2"]
+        edge = {
+            "transform": row["transform"],
+            "delta": row["delta"],
+            "core": row["core"],
+            "var_from": row["variable_1"],
+            "var_to": row["variable_2"],
+        }
+        adj[s1].append({"mol": s2, **edge})
+        adj[s2].append({"mol": s1, "transform": row["transform"],
+                         "delta": -row["delta"], "core": row["core"],
+                         "var_from": row["variable_2"], "var_to": row["variable_1"]})
+
+    return adj, mol_values, pairs_df
+
+
+def _find_sacrifice_chains(adj, mol_values, endpoint_meta,
+                           min_sacrifice=0.15, min_payoff=0.4, min_net=0.2,
+                           max_chains=50000):
+    """Find A->B->C chains where step 1 worsens the property but step 2 more
+    than compensates, modifying a different position (different core)."""
+    good_dir = endpoint_meta["good_direction"]
+    chains = []
+    seen = set()
+
+    hub_mols = sorted(adj.keys(), key=lambda m: len(adj[m]), reverse=True)[:2000]
+
+    for a in hub_mols:
+        if len(chains) >= max_chains:
+            break
+        for edge_ab in adj[a]:
+            b = edge_ab["mol"]
+            d_ab = edge_ab["delta"]
+            is_sacrifice = (good_dir == "negative" and d_ab > min_sacrifice) or \
+                           (good_dir == "positive" and d_ab < -min_sacrifice)
+            if not is_sacrifice:
+                continue
+
+            for edge_bc in adj[b]:
+                c = edge_bc["mol"]
+                if c == a:
+                    continue
+                d_bc = edge_bc["delta"]
+
+                is_payoff = (good_dir == "negative" and d_bc < -min_payoff) or \
+                            (good_dir == "positive" and d_bc > min_payoff)
+                if not is_payoff:
+                    continue
+
+                net = d_ab + d_bc
+                is_net_good = (good_dir == "negative" and net < -min_net) or \
+                              (good_dir == "positive" and net > min_net)
+                if not is_net_good:
+                    continue
+
+                if edge_ab["core"] == edge_bc["core"]:
+                    continue
+
+                key = (a, b, c)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                chains.append({
+                    "mol_A": a, "mol_B": b, "mol_C": c,
+                    "val_A": mol_values[a], "val_B": mol_values[b], "val_C": mol_values[c],
+                    "step1": edge_ab, "step2": edge_bc,
+                    "step1_delta": d_ab, "step2_delta": d_bc, "net_delta": net,
+                })
+
+                if len(chains) >= max_chains:
+                    break
+
+    return chains
+
+
+def generate_sacrifice_detection_tasks(mmp_dir, endpoints=None, n_per_endpoint=20, seed=42):
+    """Task: Given a completed A->B->C optimization where step 1 made things
+    worse, explain WHY the chemist accepted the intermediate and what step 1
+    enables for step 2."""
+    rng = random.Random(seed)
+    tasks = []
+
+    if endpoints is None:
+        endpoints = ["microsomal_clint", "microsomal_t12", "hepatocyte_clint"]
+
+    for endpoint in endpoints:
+        meta = ENDPOINT_META.get(endpoint)
+        if not meta:
+            continue
+
+        adj, mol_values, _ = _build_mol_graph(mmp_dir, endpoint)
+        if not adj:
+            continue
+
+        chains = _find_sacrifice_chains(adj, mol_values, meta)
+        if not chains:
+            continue
+
+        chains.sort(key=lambda c: abs(c["net_delta"]), reverse=True)
+        selected = chains[:min(n_per_endpoint * 5, len(chains))]
+        selected = rng.sample(selected, min(n_per_endpoint, len(selected)))
+
+        for chain in selected:
+            s1 = chain["step1"]
+            s2 = chain["step2"]
+            sacrifice_label = meta["bad_label"]
+            payoff_label = meta["good_label"]
+
+            task = {
+                "task_type": "sacrifice_detection",
+                "endpoint": endpoint,
+                "endpoint_label": meta["label"],
+                "prompt": (
+                    f"A medicinal chemist optimized a compound in two steps for {meta['property_name']}.\n\n"
+                    f"Starting compound A: {chain['mol_A']}\n"
+                    f"  {meta['label']}: {chain['val_A']:.3f} {meta['unit']}\n\n"
+                    f"Step 1 — Transform: {s1['var_from']} → {s1['var_to']}\n"
+                    f"  (on scaffold: {s1['core']})\n"
+                    f"  Result → Compound B: {chain['mol_B']}\n"
+                    f"  {meta['label']}: {chain['val_B']:.3f} {meta['unit']}\n"
+                    f"  This step made the property WORSE ({sacrifice_label}).\n\n"
+                    f"Step 2 — Transform: {s2['var_from']} → {s2['var_to']}\n"
+                    f"  (on scaffold: {s2['core']})\n"
+                    f"  Result → Compound C: {chain['mol_C']}\n"
+                    f"  {meta['label']}: {chain['val_C']:.3f} {meta['unit']}\n"
+                    f"  This step produced a large improvement ({payoff_label}).\n\n"
+                    f"Net effect: {meta['label']} went from {chain['val_A']:.3f} to {chain['val_C']:.3f} "
+                    f"(net Δ = {chain['net_delta']:+.3f}).\n\n"
+                    f"Questions:\n"
+                    f"1. Why did the chemist accept the worse intermediate (compound B)? "
+                    f"What structural feature did Step 1 introduce that enabled Step 2?\n"
+                    f"2. Could the chemist have achieved the same net improvement in a single step? "
+                    f"Why or why not?\n"
+                    f"3. What does this sequence reveal about the structure-property relationship "
+                    f"for {meta['property_name']} in this scaffold?"
+                ),
+                "ground_truth": {
+                    "mol_A": chain["mol_A"],
+                    "mol_B": chain["mol_B"],
+                    "mol_C": chain["mol_C"],
+                    "val_A": round(chain["val_A"], 4),
+                    "val_B": round(chain["val_B"], 4),
+                    "val_C": round(chain["val_C"], 4),
+                    "step1_transform": s1["transform"],
+                    "step2_transform": s2["transform"],
+                    "step1_delta": round(chain["step1_delta"], 4),
+                    "step2_delta": round(chain["step2_delta"], 4),
+                    "net_delta": round(chain["net_delta"], 4),
+                    "step1_core": s1["core"],
+                    "step2_core": s2["core"],
+                },
+                "evaluation_criteria": {
+                    "enablement_reasoning": "Does the model explain how step 1 enables step 2?",
+                    "structural_analysis": "Does the model identify the key structural features?",
+                    "single_step_analysis": "Does the model correctly assess if a single step could work?",
+                    "reasoning_elements": [
+                        "Identifies that different positions are modified in each step",
+                        "Explains how step 1's structural change creates a context for step 2",
+                        "Discusses electronic/steric/metabolic consequences of each change",
+                        "Recognizes that sequential optimization is sometimes necessary",
+                        "Considers whether the intermediate scaffold allows the second modification",
+                    ],
+                },
+                "metadata": {
+                    "endpoint": endpoint,
+                    "n_steps": 2,
+                },
+            }
+            tasks.append(task)
+
+    logger.info(f"Generated {len(tasks)} sacrifice_detection tasks")
+    return tasks
+
+
+def generate_strategic_planning_tasks(mmp_dir, endpoints=None, n_per_endpoint=20, seed=42):
+    """Task: Given molecule A with a property problem, a set of possible first-move
+    transforms, and their downstream options, plan the best 2-step optimization.
+    Some first moves look worse but enable better second moves (the chess analogy)."""
+    rng = random.Random(seed)
+    tasks = []
+
+    if endpoints is None:
+        endpoints = ["microsomal_clint", "microsomal_t12", "hepatocyte_clint"]
+
+    for endpoint in endpoints:
+        meta = ENDPOINT_META.get(endpoint)
+        if not meta:
+            continue
+
+        adj, mol_values, _ = _build_mol_graph(mmp_dir, endpoint)
+        if not adj:
+            continue
+
+        good_dir = meta["good_direction"]
+        candidates = []
+
+        mol_list = sorted(adj.keys(), key=lambda m: len(adj[m]), reverse=True)[:3000]
+        for a in mol_list:
+            neighbors = adj[a]
+            if len(neighbors) < 3:
+                continue
+
+            paths = []
+            for edge_ab in neighbors:
+                b = edge_ab["mol"]
+                best_bc = None
+                for edge_bc in adj[b]:
+                    c = edge_bc["mol"]
+                    if c == a:
+                        continue
+                    if edge_ab["core"] == edge_bc["core"]:
+                        continue
+                    total = edge_ab["delta"] + edge_bc["delta"]
+                    if best_bc is None or (
+                        (good_dir == "negative" and total < best_bc["total"]) or
+                        (good_dir == "positive" and total > best_bc["total"])
+                    ):
+                        best_bc = {"edge_bc": edge_bc, "total": total, "mol_C": c}
+
+                if best_bc is not None:
+                    paths.append({
+                        "edge_ab": edge_ab, "mol_B": b,
+                        "edge_bc": best_bc["edge_bc"], "mol_C": best_bc["mol_C"],
+                        "step1_delta": edge_ab["delta"],
+                        "best_total": best_bc["total"],
+                    })
+
+            if len(paths) < 3:
+                continue
+
+            paths.sort(key=lambda p: p["best_total"],
+                       reverse=(good_dir == "positive"))
+
+            best_path = paths[0]
+            greedy_paths = sorted(paths, key=lambda p: p["step1_delta"],
+                                  reverse=(good_dir == "positive"))
+            greedy_best = greedy_paths[0]
+
+            if best_path is greedy_best:
+                continue
+
+            is_sacrifice = (good_dir == "negative" and best_path["step1_delta"] > 0.1) or \
+                           (good_dir == "positive" and best_path["step1_delta"] < -0.1)
+            if not is_sacrifice:
+                continue
+
+            improvement = abs(best_path["best_total"] - greedy_best["best_total"])
+            if improvement < 0.3:
+                continue
+
+            distractors = rng.sample(paths[1:min(6, len(paths))], min(2, len(paths)-1))
+
+            candidates.append({
+                "mol_A": a, "val_A": mol_values[a],
+                "best_path": best_path, "greedy_path": greedy_best,
+                "distractors": distractors, "improvement": improvement,
+            })
+
+        candidates.sort(key=lambda c: c["improvement"], reverse=True)
+        selected = candidates[:min(n_per_endpoint * 3, len(candidates))]
+        selected = rng.sample(selected, min(n_per_endpoint, len(selected)))
+
+        for cand in selected:
+            options = [cand["best_path"], cand["greedy_path"]] + cand["distractors"]
+            rng.shuffle(options)
+
+            options_text = ""
+            for j, opt in enumerate(options):
+                ab = opt["edge_ab"]
+                bc = opt["edge_bc"]
+                b_val = mol_values[opt["mol_B"]]
+                c_val = mol_values[opt["mol_C"]]
+                options_text += (
+                    f"\nOption {chr(65+j)}:\n"
+                    f"  Step 1: {ab['var_from']} → {ab['var_to']}  "
+                    f"(Δ{meta['label']} = {opt['step1_delta']:+.3f})\n"
+                    f"  Step 2: {bc['var_from']} → {bc['var_to']}  "
+                    f"(Δ{meta['label']} = {bc['delta']:+.3f})\n"
+                    f"  Net: Δ = {opt['best_total']:+.3f}\n"
+                )
+
+            best_idx = options.index(cand["best_path"])
+            greedy_idx = options.index(cand["greedy_path"])
+
+            task = {
+                "task_type": "strategic_planning",
+                "endpoint": endpoint,
+                "endpoint_label": meta["label"],
+                "prompt": (
+                    f"You are optimizing a compound for {meta['property_name']}.\n\n"
+                    f"Starting compound: {cand['mol_A']}\n"
+                    f"  Current {meta['label']}: {cand['val_A']:.3f} {meta['unit']}\n"
+                    f"  Goal: {meta['good_label']}\n\n"
+                    f"You can make modifications at two different positions on the scaffold. "
+                    f"Below are {len(options)} possible 2-step optimization paths, each "
+                    f"modifying a different combination of positions.\n"
+                    f"{options_text}\n"
+                    f"Questions:\n"
+                    f"1. Which option gives the best overall outcome? Why?\n"
+                    f"2. Option {chr(65+greedy_idx)} has the best first step. Why might the "
+                    f"greedy (best-first-step) strategy not lead to the best overall result?\n"
+                    f"3. Explain the chemical reasoning behind why the optimal path works — "
+                    f"what structural or electronic interplay between the two modifications "
+                    f"drives the synergy?"
+                ),
+                "ground_truth": {
+                    "best_option": chr(65 + best_idx),
+                    "greedy_option": chr(65 + greedy_idx),
+                    "best_net_delta": round(cand["best_path"]["best_total"], 4),
+                    "greedy_net_delta": round(cand["greedy_path"]["best_total"], 4),
+                    "improvement_over_greedy": round(cand["improvement"], 4),
+                    "best_mol_B": cand["best_path"]["mol_B"],
+                    "best_mol_C": cand["best_path"]["mol_C"],
+                    "best_step1_transform": cand["best_path"]["edge_ab"]["transform"],
+                    "best_step2_transform": cand["best_path"]["edge_bc"]["transform"],
+                },
+                "evaluation_criteria": {
+                    "correct_choice": "Does the model select the globally optimal path?",
+                    "greedy_trap": "Does the model recognize why greedy fails?",
+                    "synergy_reasoning": "Does the model explain inter-position synergy?",
+                    "reasoning_elements": [
+                        "Identifies the globally optimal option (not the greedy one)",
+                        "Explains why the best first step doesn't lead to the best outcome",
+                        "Discusses how modifications at different positions interact",
+                        "References electronic, steric, or metabolic interplay",
+                        "Demonstrates strategic multi-step thinking",
+                    ],
+                },
+                "metadata": {
+                    "endpoint": endpoint,
+                    "n_options": len(options),
+                    "n_steps": 2,
+                },
+            }
+            tasks.append(task)
+
+    logger.info(f"Generated {len(tasks)} strategic_planning tasks")
+    return tasks
+
+
+def generate_multi_objective_tasks(mmp_dir, endpoints=None, n_tasks=40, seed=42):
+    """Task: Reason about transform-level tradeoffs across ADME endpoints.
+    Uses transform statistics (not molecule-level matching) since compounds
+    rarely have data across multiple endpoints.
+
+    Presents pairs of transforms with opposing effects on two properties and
+    asks the model to reason about the mechanistic basis and how to navigate."""
+    rng = random.Random(seed)
+    tasks = []
+
+    endpoint_pairs = [
+        ("microsomal_clint", "cyp3a4_binary"),
+        ("microsomal_clint", "cyp2d6_binary"),
+        ("microsomal_clint", "cyp2c9_binary"),
+        ("microsomal_clint", "cyp2c19_binary"),
+        ("hepatocyte_clint", "cyp3a4_binary"),
+        ("microsomal_t12", "cyp3a4_binary"),
+    ]
+    if endpoints:
+        endpoint_pairs = [(a, b) for a, b in endpoint_pairs
+                          if a in endpoints or b in endpoints]
+
+    for ep1, ep2 in endpoint_pairs:
+        meta1 = ENDPOINT_META.get(ep1)
+        meta2 = ENDPOINT_META.get(ep2)
+        if not meta1 or not meta2:
+            continue
+
+        t1 = load_transforms(mmp_dir, ep1)
+        t2 = load_transforms(mmp_dir, ep2)
+        if t1.empty or t2.empty:
+            continue
+
+        t1_supp = t1[t1["num_pairs"] >= 5].set_index("transform")
+        t2_supp = t2[t2["num_pairs"] >= 5].set_index("transform")
+        shared = set(t1_supp.index) & set(t2_supp.index)
+
+        if not shared:
+            continue
+
+        good1 = meta1["good_direction"]
+        good2 = meta2["good_direction"]
+
+        conflicting = []
+        for t in shared:
+            d1 = t1_supp.loc[t, "mean_delta"]
+            d2 = t2_supp.loc[t, "mean_delta"]
+            n1 = t1_supp.loc[t, "num_pairs"]
+            n2 = t2_supp.loc[t, "num_pairs"]
+
+            good_for_1 = (good1 == "negative" and d1 < -0.1) or (good1 == "positive" and d1 > 0.1)
+            bad_for_2 = (good2 == "negative" and d2 > 0.08) or (good2 == "positive" and d2 < -0.08)
+
+            if good_for_1 and bad_for_2:
+                conflicting.append({
+                    "transform": t, "d1": d1, "d2": d2, "n1": n1, "n2": n2,
+                    "conflict_score": abs(d1) + abs(d2),
+                })
+
+        if not conflicting:
+            continue
+
+        fixing = []
+        for t in shared:
+            d2 = t2_supp.loc[t, "mean_delta"]
+            d1 = t1_supp.loc[t, "mean_delta"]
+            n2 = t2_supp.loc[t, "num_pairs"]
+
+            good_for_2 = (good2 == "negative" and d2 < -0.1) or (good2 == "positive" and d2 > 0.1)
+            neutral_for_1 = abs(d1) < 0.15
+
+            if good_for_2 and neutral_for_1:
+                fixing.append({
+                    "transform": t, "d1": d1, "d2": d2,
+                    "n1": t1_supp.loc[t, "num_pairs"], "n2": n2,
+                })
+
+        conflicting.sort(key=lambda x: x["conflict_score"], reverse=True)
+
+        n_per = max(1, n_tasks // len(endpoint_pairs))
+        for conf in conflicting[:n_per]:
+            fix = rng.choice(fixing) if fixing else None
+
+            step2_text = ""
+            step2_gt = {}
+            if fix:
+                fix_dir = meta2["good_label"]
+                step2_text = (
+                    f"\nA second transform is available that could fix {meta2['property_name']} "
+                    f"without hurting {meta1['property_name']}:\n"
+                    f"  Transform 2: {fix['transform']}\n"
+                    f"  Mean Δ {meta1['label']}: {fix['d1']:+.4f} (n={fix['n1']} pairs)\n"
+                    f"  Mean Δ {meta2['label']}: {fix['d2']:+.4f} (n={fix['n2']} pairs)\n\n"
+                    f"Question 4: If you applied Transform 1 first and Transform 2 second "
+                    f"(at a different position), would this be a viable 2-step optimization "
+                    f"strategy? What are the risks?\n"
+                )
+                step2_gt = {
+                    "fix_transform": fix["transform"],
+                    "fix_d1": round(float(fix["d1"]), 4),
+                    "fix_d2": round(float(fix["d2"]), 4),
+                    "fix_n1": int(fix["n1"]),
+                    "fix_n2": int(fix["n2"]),
+                }
+
+            task = {
+                "task_type": "multi_objective_path",
+                "endpoint": f"{ep1}+{ep2}",
+                "endpoint_label": f"{meta1['label']} vs {meta2['label']}",
+                "prompt": (
+                    f"A matched molecular pair analysis reveals a tradeoff between two ADME properties.\n\n"
+                    f"Transform 1: {conf['transform']}\n"
+                    f"  Mean Δ {meta1['label']}: {conf['d1']:+.4f} {meta1['unit']} "
+                    f"(n={conf['n1']} pairs) — {meta1['good_label']}\n"
+                    f"  Mean Δ {meta2['label']}: {conf['d2']:+.4f} {meta2['unit']} "
+                    f"(n={conf['n2']} pairs) — {meta2['bad_label']}\n\n"
+                    f"Questions:\n"
+                    f"1. Explain the mechanistic basis for why this transform improves "
+                    f"{meta1['property_name']} but worsens {meta2['property_name']}.\n"
+                    f"2. In what structural contexts would you expect this tradeoff to be "
+                    f"most severe? When might both properties improve together?\n"
+                    f"3. How would a medicinal chemist navigate this tradeoff in a real "
+                    f"optimization campaign?\n"
+                    f"{step2_text}"
+                ),
+                "ground_truth": {
+                    "conflict_transform": conf["transform"],
+                    "d1": round(float(conf["d1"]), 4), "d2": round(float(conf["d2"]), 4),
+                    "n1": int(conf["n1"]), "n2": int(conf["n2"]),
+                    "ep1": ep1, "ep2": ep2,
+                    **step2_gt,
+                },
+                "evaluation_criteria": {
+                    "tradeoff_mechanism": "Does the model explain WHY the two properties conflict?",
+                    "context_awareness": "Does the model identify when the tradeoff is worst/best?",
+                    "mpo_strategy": "Does the model propose a viable multi-parameter strategy?",
+                    "reasoning_elements": [
+                        "Explains mechanistic basis of the property conflict",
+                        "Identifies specific structural/electronic features driving each effect",
+                        "Discusses context-dependence of the tradeoff",
+                        "Proposes practical medchem strategies (orthogonal modifications, scaffolding)",
+                        "If 2-step path given: evaluates viability and risks of sequential approach",
+                    ],
+                },
+                "metadata": {
+                    "endpoint_1": ep1,
+                    "endpoint_2": ep2,
+                    "has_fix_transform": fix is not None,
+                },
+            }
+            tasks.append(task)
+
+    logger.info(f"Generated {len(tasks)} multi_objective_path tasks")
+    return tasks
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -768,7 +1283,8 @@ def main():
     parser.add_argument("--task-type", type=str, default="all",
                         choices=["all", "property_delta", "series_completion",
                                  "transform_ranking", "tradeoff_analysis",
-                                 "transform_explain"],
+                                 "transform_explain", "sacrifice_detection",
+                                 "strategic_planning", "multi_objective_path"],
                         help="Type of tasks to generate")
     parser.add_argument("--n", type=int, default=50,
                         help="Number of tasks per endpoint per type")
@@ -806,6 +1322,18 @@ def main():
     if args.task_type in ("all", "transform_explain"):
         all_tasks.extend(generate_explanation_tasks(
             mmp_dir, n_per_endpoint=args.n, seed=args.seed))
+
+    if args.task_type in ("all", "sacrifice_detection"):
+        all_tasks.extend(generate_sacrifice_detection_tasks(
+            mmp_dir, n_per_endpoint=args.n, seed=args.seed))
+
+    if args.task_type in ("all", "strategic_planning"):
+        all_tasks.extend(generate_strategic_planning_tasks(
+            mmp_dir, n_per_endpoint=args.n, seed=args.seed))
+
+    if args.task_type in ("all", "multi_objective_path"):
+        all_tasks.extend(generate_multi_objective_tasks(
+            mmp_dir, n_tasks=args.n * 2, seed=args.seed))
 
     summary = {}
     for t in all_tasks:
