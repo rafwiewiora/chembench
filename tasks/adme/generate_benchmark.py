@@ -1043,15 +1043,12 @@ def generate_strategic_planning_tasks(mmp_dir, endpoints=None, n_per_endpoint=20
             for j, opt in enumerate(options):
                 ab = opt["edge_ab"]
                 bc = opt["edge_bc"]
-                b_val = mol_values[opt["mol_B"]]
-                c_val = mol_values[opt["mol_C"]]
                 options_text += (
                     f"\nOption {chr(65+j)}:\n"
                     f"  Step 1: {ab['var_from']} → {ab['var_to']}  "
                     f"(Δ{meta['label']} = {opt['step1_delta']:+.3f})\n"
                     f"  Step 2: {bc['var_from']} → {bc['var_to']}  "
-                    f"(Δ{meta['label']} = {bc['delta']:+.3f})\n"
-                    f"  Net: Δ = {opt['best_total']:+.3f}\n"
+                    f"(effect unknown — you must predict from structure)\n"
                 )
 
             best_idx = options.index(cand["best_path"])
