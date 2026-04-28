@@ -263,6 +263,42 @@ def render_task_visualization(task):
             )
         return ""
 
+    elif tt in ("sacrifice_detection", "strategic_planning"):
+        gt = task.get("ground_truth", {})
+        mols = []
+        for key in ["mol_A", "mol_B", "mol_C", "best_mol_B", "best_mol_C"]:
+            smi = gt.get(key, "")
+            if smi:
+                mols.append((key.replace("mol_", "").replace("best_", "best "), smi))
+        if mols:
+            parts = []
+            for label, smi in mols[:3]:
+                svg = mol_to_svg(smi, 180, 140)
+                parts.append(
+                    f'<div style="text-align:center">'
+                    f'{svg}<div style="font-size:0.75rem;color:#64748b;">{label}</div></div>'
+                )
+            arrow = '<span style="font-size:24px;font-weight:bold;padding:0 4px;">→</span>'
+            return f'<div style="display:flex;align-items:center;gap:6px;">{arrow.join(parts)}</div>'
+        return ""
+
+    elif tt == "multi_objective_path":
+        gt = task.get("ground_truth", {})
+        transform = gt.get("conflict_transform", "")
+        if ">>" in transform:
+            parts = transform.split(">>")
+            s1 = mol_to_svg(parts[0], 200, 160)
+            s2 = mol_to_svg(parts[1], 200, 160)
+            return (
+                f'<div style="display:flex;align-items:center;gap:12px;">'
+                f'{s1}'
+                f'<span style="font-size:28px;font-weight:bold;">→</span>'
+                f'{s2}'
+                f'<span style="font-size:0.7rem;color:#ef4444;margin-left:8px;">⚡ tradeoff</span>'
+                f'</div>'
+            )
+        return ""
+
     return ""
 
 
@@ -536,6 +572,169 @@ def assess_explanation(task, response):
     return {"grade": grade, "score": score, "checks": checks, "summary": summary}
 
 
+def assess_sacrifice_detection(task, response):
+    """Auto-assess a sacrifice_detection task."""
+    if "[ERROR" in response:
+        return {"grade": "error", "score": 0, "checks": {}, "summary": "Model response errored."}
+
+    checks = {}
+    resp_lower = response.lower()
+    gt = task["ground_truth"]
+
+    mechanism_keywords = [
+        "metabol", "clearance", "lipophil", "electron", "cyp", "oxidat",
+        "steric", "hydrogen bond", "polar", "logp", "log p", "solubil",
+        "glucuronid", "conjugat", "soft spot", "n-demethyl", "hydroxyl",
+    ]
+    n_mech = sum(1 for kw in mechanism_keywords if kw in resp_lower)
+    checks["mechanistic_depth"] = n_mech >= 3
+
+    enablement_keywords = [
+        "enabl", "allow", "facilitat", "position", "scaffold", "context",
+        "prerequisite", "necessary", "open up", "introduce", "create",
+        "different site", "different position", "orthogonal",
+    ]
+    n_enable = sum(1 for kw in enablement_keywords if kw in resp_lower)
+    checks["explains_enablement"] = n_enable >= 2
+
+    single_step_keywords = [
+        "single step", "one step", "direct", "simultaneously",
+        "both at once", "single transform", "not possible", "cannot",
+    ]
+    checks["addresses_single_step"] = any(kw in resp_lower for kw in single_step_keywords)
+
+    checks["discusses_sar"] = any(kw in resp_lower for kw in
+        ["structure-activity", "sar", "structure-property", "spr",
+         "structure activity", "structure property"])
+
+    score = sum([
+        30 if checks["mechanistic_depth"] else 10 if n_mech >= 1 else 0,
+        35 if checks["explains_enablement"] else 10 if n_enable >= 1 else 0,
+        20 if checks["addresses_single_step"] else 0,
+        15 if checks["discusses_sar"] else 0,
+    ])
+
+    if score >= 70:
+        grade = "good"
+    elif score >= 40:
+        grade = "partial"
+    else:
+        grade = "weak" if score > 0 else "poor"
+
+    summary = (f"Mechanistic: {n_mech} kw. Enablement reasoning: {n_enable} kw. "
+               f"Single-step: {'yes' if checks['addresses_single_step'] else 'no'}.")
+
+    return {"grade": grade, "score": score, "checks": checks, "summary": summary}
+
+
+def assess_strategic_planning(task, response):
+    """Auto-assess a strategic_planning task."""
+    if "[ERROR" in response:
+        return {"grade": "error", "score": 0, "checks": {}, "summary": "Model response errored."}
+
+    checks = {}
+    resp_lower = response.lower()
+    gt = task["ground_truth"]
+
+    best = gt["best_option"]
+    greedy = gt["greedy_option"]
+    checks["selects_best"] = f"option {best.lower()}" in resp_lower or f"option {best}" in response
+    checks["identifies_greedy_trap"] = any(kw in resp_lower for kw in
+        ["greedy", "short-sighted", "short-term", "myopic", "first step",
+         "locally optimal", "immediate", "best first"])
+
+    synergy_keywords = [
+        "synerg", "interact", "interplay", "cooperat", "complementar",
+        "orthogonal", "independent", "coupled", "enable", "position",
+        "scaffold", "context",
+    ]
+    n_synergy = sum(1 for kw in synergy_keywords if kw in resp_lower)
+    checks["discusses_synergy"] = n_synergy >= 2
+
+    mechanism_keywords = [
+        "metabol", "electron", "steric", "lipophil", "polar",
+        "clearance", "cyp", "hydrogen bond", "logp",
+    ]
+    n_mech = sum(1 for kw in mechanism_keywords if kw in resp_lower)
+    checks["mechanistic_reasoning"] = n_mech >= 2
+
+    score = sum([
+        35 if checks["selects_best"] else 0,
+        25 if checks["identifies_greedy_trap"] else 0,
+        25 if checks["discusses_synergy"] else 10 if n_synergy >= 1 else 0,
+        15 if checks["mechanistic_reasoning"] else 5 if n_mech >= 1 else 0,
+    ])
+
+    if score >= 70:
+        grade = "good"
+    elif score >= 40:
+        grade = "partial"
+    else:
+        grade = "weak" if score > 0 else "poor"
+
+    summary = (f"Best option: {'correct' if checks['selects_best'] else 'wrong/unclear'}. "
+               f"Greedy trap: {'identified' if checks['identifies_greedy_trap'] else 'missed'}. "
+               f"Synergy: {n_synergy} kw.")
+
+    return {"grade": grade, "score": score, "checks": checks, "summary": summary}
+
+
+def assess_multi_objective(task, response):
+    """Auto-assess a multi_objective_path task."""
+    if "[ERROR" in response:
+        return {"grade": "error", "score": 0, "checks": {}, "summary": "Model response errored."}
+
+    checks = {}
+    resp_lower = response.lower()
+
+    tradeoff_keywords = [
+        "tradeoff", "trade-off", "trade off", "conflict", "tension",
+        "competing", "balance", "compromise", "paradox",
+    ]
+    checks["identifies_tradeoff"] = any(kw in resp_lower for kw in tradeoff_keywords)
+
+    mechanism_keywords = [
+        "metabol", "clearance", "cyp", "inhibit", "lipophil", "electron",
+        "binding", "active site", "oxidat", "conjugat", "polar",
+        "hydrogen bond", "logp", "log p",
+    ]
+    n_mech = sum(1 for kw in mechanism_keywords if kw in resp_lower)
+    checks["mechanistic_depth"] = n_mech >= 3
+
+    strategy_keywords = [
+        "multi-parameter", "mpo", "orthogonal", "independent",
+        "different position", "different site", "sequential",
+        "two-step", "two step", "iterative", "navigate",
+    ]
+    n_strat = sum(1 for kw in strategy_keywords if kw in resp_lower)
+    checks["discusses_strategy"] = n_strat >= 2
+
+    context_keywords = [
+        "context", "scaffold", "depend", "series", "specific",
+        "environment", "substituent", "most severe", "strongest",
+    ]
+    checks["context_aware"] = any(kw in resp_lower for kw in context_keywords)
+
+    score = sum([
+        20 if checks["identifies_tradeoff"] else 0,
+        30 if checks["mechanistic_depth"] else 10 if n_mech >= 1 else 0,
+        30 if checks["discusses_strategy"] else 10 if n_strat >= 1 else 0,
+        20 if checks["context_aware"] else 0,
+    ])
+
+    if score >= 70:
+        grade = "good"
+    elif score >= 40:
+        grade = "partial"
+    else:
+        grade = "weak" if score > 0 else "poor"
+
+    summary = (f"Tradeoff: {'yes' if checks['identifies_tradeoff'] else 'no'}. "
+               f"Mechanism: {n_mech} kw. Strategy: {n_strat} kw.")
+
+    return {"grade": grade, "score": score, "checks": checks, "summary": summary}
+
+
 def auto_assess(task, response):
     """Route to the right assessor based on task type."""
     tt = task["task_type"]
@@ -549,6 +748,12 @@ def auto_assess(task, response):
         return assess_tradeoff(task, response)
     elif tt == "transform_explain":
         return assess_explanation(task, response)
+    elif tt == "sacrifice_detection":
+        return assess_sacrifice_detection(task, response)
+    elif tt == "strategic_planning":
+        return assess_strategic_planning(task, response)
+    elif tt == "multi_objective_path":
+        return assess_multi_objective(task, response)
     return {"grade": "unknown", "score": 0, "checks": {}, "summary": "Unknown task type."}
 
 
