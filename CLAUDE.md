@@ -26,8 +26,7 @@ Chemistry reasoning benchmark for LLMs — focused on tasks that require genuine
   - `generate_benchmark.py` — reads from mmp-adme-database, generates 8 task types
   - `benchmark_tasks.json` — generated benchmark (1,787 tasks)
   - `run_validation.py` — runs tasks through Claude, auto-assesses, generates HTML report
-- `data/` — task data and examples
-- `eval/` — evaluation/reward functions
+- `results/` — validation reports and artifacts (gitignored)
 
 ## Task Types
 1. property_delta — predict property change from transform + explain
