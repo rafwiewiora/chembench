@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beyond Property Lookup: A Matched Molecular Pair Benchmark for Multi-Step Chemical Reasoning</title>
+<style>
+  /* Reset and base */
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-size: 11.5pt;
+    line-height: 1.65;
+    color: #1a1a1a;
+    background: #fff;
+    margin: 0;
+    padding: 0;
+  }
+
+  .paper {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 60px 24px 80px;
+  }
+
+  /* Typography */
+  h1, h2, h3, h4 {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-weight: 600;
+    color: #111;
+    margin-top: 2em;
+    margin-bottom: 0.6em;
+    line-height: 1.25;
+  }
+
+  h1 {
+    font-size: 22pt;
+    text-align: center;
+    margin-top: 0;
+    margin-bottom: 0.3em;
+    line-height: 1.3;
+    letter-spacing: -0.3px;
+  }
+
+  h2 {
+    font-size: 14pt;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 6px;
+  }
+
+  h3 {
+    font-size: 12pt;
+    margin-top: 1.5em;
+  }
+
+  h4 {
+    font-size: 11pt;
+    font-style: italic;
+    font-weight: 500;
+    margin-top: 1.2em;
+  }
+
+  p {
+    margin: 0 0 0.9em;
+    text-align: justify;
+    hyphens: auto;
+  }
+
+  /* Title block */
+  .title-block {
+    text-align: center;
+    margin-bottom: 2.5em;
+  }
+
+  .authors {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 11pt;
+    color: #444;
+    margin: 0.8em 0 0.3em;
+  }
+
+  .affiliation {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 9.5pt;
+    color: #666;
+    font-style: italic;
+    margin-bottom: 0.2em;
+  }
+
+  .date {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 9.5pt;
+    color: #888;
+    margin-top: 0.5em;
+  }
+
+  /* Abstract */
+  .abstract {
+    background: #f8f8f8;
+    border-left: 3px solid #999;
+    padding: 16px 20px;
+    margin: 2em 0;
+    font-size: 10.5pt;
+  }
+
+  .abstract h2 {
+    font-size: 11pt;
+    border: none;
+    margin-top: 0;
+    padding: 0;
+    margin-bottom: 0.4em;
+  }
+
+  .abstract p {
+    margin-bottom: 0.5em;
+  }
+
+  .abstract p:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2em 0;
+    font-size: 10pt;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  }
+
+  thead th {
+    background: #2c3e50;
+    color: #fff;
+    font-weight: 600;
+    padding: 8px 10px;
+    text-align: left;
+    font-size: 9.5pt;
+    letter-spacing: 0.3px;
+  }
+
+  tbody td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #e0e0e0;
+  }
+
+  tbody tr:nth-child(even) {
+    background: #f7f9fb;
+  }
+
+  tbody tr:hover {
+    background: #eef2f7;
+  }
+
+  tbody tr.highlight {
+    font-weight: 600;
+    background: #e8edf3;
+  }
+
+  tbody tr.highlight td {
+    border-top: 2px solid #2c3e50;
+  }
+
+  td.num, th.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  td.task-name {
+    font-family: 'Menlo', 'Consolas', 'Courier New', monospace;
+    font-size: 9pt;
+  }
+
+  /* Table and figure captions */
+  .caption {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 9.5pt;
+    color: #444;
+    margin: 0.6em 0 1.8em;
+    line-height: 1.45;
+  }
+
+  .caption strong {
+    color: #222;
+  }
+
+  /* Inline code / task names */
+  code {
+    font-family: 'Menlo', 'Consolas', 'Courier New', monospace;
+    font-size: 9.5pt;
+    background: #f3f3f3;
+    padding: 1px 4px;
+    border-radius: 2px;
+    color: #333;
+  }
+
+  /* Blockquote for callouts */
+  blockquote {
+    border-left: 3px solid #bbb;
+    margin: 1.2em 0;
+    padding: 0.5em 1em;
+    color: #555;
+    font-style: italic;
+    background: #fafafa;
+  }
+
+  /* Lists */
+  ul, ol {
+    margin: 0.5em 0 1em 1.5em;
+    padding: 0;
+  }
+
+  li {
+    margin-bottom: 0.3em;
+  }
+
+  /* References section */
+  .references {
+    font-size: 9.5pt;
+    line-height: 1.5;
+  }
+
+  .references ol {
+    padding-left: 2em;
+  }
+
+  .references li {
+    margin-bottom: 0.6em;
+    text-align: left;
+  }
+
+  /* Superscript references */
+  sup {
+    font-size: 8pt;
+    line-height: 0;
+    vertical-align: super;
+  }
+
+  sup a {
+    color: #2c3e50;
+    text-decoration: none;
+  }
+
+  sup a:hover {
+    text-decoration: underline;
+  }
+
+  /* Section numbering (manual in text) */
+  .section-num {
+    font-weight: 700;
+    margin-right: 0.3em;
+  }
+
+  /* Tier labels */
+  .tier-label {
+    display: inline-block;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 8.5pt;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+
+  .tier-single {
+    background: #dce8f5;
+    color: #2c5282;
+  }
+
+  .tier-multi {
+    background: #fde8d0;
+    color: #9c4221;
+  }
+
+  /* Figure boxes */
+  .figure-box {
+    border: 1px solid #ddd;
+    padding: 16px;
+    margin: 1.5em 0 0.4em;
+    background: #fdfdfd;
+    text-align: center;
+  }
+
+  .figure-box .schema {
+    font-family: 'Menlo', 'Consolas', monospace;
+    font-size: 9pt;
+    line-height: 1.6;
+    text-align: left;
+    display: inline-block;
+    color: #333;
+  }
+
+  /* Emphasis bar for key findings */
+  .key-finding {
+    background: #fef9e7;
+    border: 1px solid #f0d060;
+    padding: 12px 16px;
+    margin: 1.5em 0;
+    border-radius: 2px;
+  }
+
+  .key-finding p {
+    margin: 0;
+    text-align: left;
+  }
+
+  /* Print styles */
+  @media print {
+    body { font-size: 10.5pt; }
+    .paper { padding: 0; max-width: none; }
+    .abstract { break-inside: avoid; }
+    table { break-inside: avoid; }
+    h2 { break-after: avoid; }
+    h3 { break-after: avoid; }
+    .caption { break-before: avoid; }
+    a { color: #1a1a1a; text-decoration: none; }
+    sup a { color: #1a1a1a; }
+    tbody tr:hover { background: inherit; }
+  }
+
+  /* Delta coloring in results */
+  .delta-pos { color: #1a7f37; }
+  .delta-neg { color: #cf222e; }
+  .delta-zero { color: #666; }
+</style>
+</head>
+<body>
+<div class="paper">
+
+<!-- ============================================================ -->
+<!-- TITLE BLOCK -->
+<!-- ============================================================ -->
+<div class="title-block">
+  <h1>Beyond Property Lookup: A Matched Molecular Pair Benchmark for Multi-Step Chemical Reasoning</h1>
+  <div class="authors">Rafal Wiewiora</div>
+  <div class="affiliation">Psivant Therapeutics</div>
+  <div class="date">Draft -- April 2026</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- ABSTRACT -->
+<!-- ============================================================ -->
+<div class="abstract">
+  <h2>Abstract</h2>
+  <p>
+    Large language models are increasingly deployed for molecular optimization, yet existing chemistry benchmarks overwhelmingly test factual recall or single-step transformations. We introduce ChemBench-ADME, a benchmark of 1,787 tasks across eight types that test genuine medicinal chemistry reasoning using matched molecular pairs (MMPs) from ChEMBL. Task types range from single-step property prediction to multi-step strategic planning where greedy optimization fails -- analogous to sacrifice moves in chess. All tasks use open-ended formats to avoid the approximately 10-fold score inflation that ChemIQ demonstrated arises from multiple-choice question design. In preliminary evaluation on Claude Sonnet 4 and Claude Opus 4, we find that both models achieve near-perfect scores on single-step explanation tasks but degrade significantly on strategic planning: when step-two effects are hidden, accuracy on the <code>strategic_planning</code> task drops from 100% to 74% (Sonnet) and 65% (Opus). Models identify the greedy trap conceptually but still fall into it when forced to commit, revealing a gap between declarative chemical knowledge and strategic chemical reasoning. We release the benchmark, generation code, and an expert evaluation framework.
+  </p>
+</div>
+
+<!-- ============================================================ -->
+<!-- 1. INTRODUCTION -->
+<!-- ============================================================ -->
+<h2>1. Introduction</h2>
+
+<p>
+  Drug discovery is among the most consequential applications of large language models in the sciences. LLMs are now routinely used for molecular property prediction, structure-activity relationship (SAR) interpretation, and analog design.<sup><a href="#ref1">1</a>,<a href="#ref2">2</a></sup> Yet the benchmarks used to evaluate these capabilities remain poorly matched to the demands of real medicinal chemistry practice.
+</p>
+
+<p>
+  The shortcomings of existing benchmarks fall into three categories. First, <em>format inflation</em>: the ChemIQ study demonstrated that converting identical chemistry questions from short-answer to multiple-choice format inflates scores by up to 10-fold,<sup><a href="#ref3">3</a></sup> and the majority of chemistry benchmarks use multiple-choice.<sup><a href="#ref4">4</a>,<a href="#ref5">5</a>,<a href="#ref6">6</a></sup> Second, <em>single-step ceilings</em>: benchmarks like ether0<sup><a href="#ref7">7</a></sup> test single-step forward and retrosynthetic transformations across 640,000 problems, but real molecular optimization requires composing multiple steps where each decision constrains downstream options. Third, <em>right answer, wrong reasoning</em>: oMeBench found that models predict correct reaction products 90% of the time but produce correct mechanisms only 24% of the time,<sup><a href="#ref8">8</a></sup> suggesting that apparent competence masks shallow pattern matching. The ChemBench benchmark from LamaLab found no correlation between molecular complexity and model accuracy, a signature of memorization rather than reasoning.<sup><a href="#ref4">4</a></sup>
+</p>
+
+<p>
+  A working medicinal chemist confronts a different class of problem. Lead optimization frequently requires accepting worse intermediate compounds to enable better final outcomes -- metabolic liabilities may be introduced deliberately if they create a handle for a subsequent transformation that resolves multiple issues simultaneously. Clearance improvements must be weighed against CYP inhibition risks. The relevant analogy is not a lookup table but a chess game: the best next move may look suboptimal in isolation, and evaluating it requires reasoning several steps ahead about consequences that cannot be observed directly.
+</p>
+
+<p>
+  We introduce ChemBench-ADME, a benchmark designed to test this kind of strategic chemical reasoning. The benchmark comprises 1,787 tasks across eight types, organized into two tiers: five single-step reasoning tasks and three multi-step "chess" tasks. All tasks are grounded in 618,000+ experimentally validated matched molecular pairs (MMPs) spanning 14 ADME endpoints, drawn from ChEMBL.<sup><a href="#ref9">9</a></sup> Every task uses open-ended format -- no multiple choice -- and has quantitative ground truth derived from population-level transform statistics, not expert opinion.
+</p>
+
+<p>
+  Our key contributions are:
+</p>
+<ol>
+  <li>The first benchmark that tests multi-step strategic reasoning in medicinal chemistry, not merely single-step property prediction or reaction knowledge.</li>
+  <li>A task design methodology grounded in matched molecular pairs that provides verifiable, quantitative ground truth from experimental data.</li>
+  <li>Preliminary evidence that current frontier models exhibit a specific and measurable strategic reasoning gap: they can articulate the concept of sacrifice moves but fail to execute them when forced to choose.</li>
+  <li>An open benchmark with generation code and an expert evaluation framework with interactive HTML reports.</li>
+</ol>
+
+<!-- ============================================================ -->
+<!-- 2. RELATED WORK -->
+<!-- ============================================================ -->
+<h2>2. Related Work</h2>
+
+<h3>2.1 Comprehensive Chemistry Benchmarks</h3>
+
+<p>
+  Several large-scale benchmarks aim to evaluate LLM chemistry capabilities broadly. ChemBench<sup><a href="#ref4">4</a></sup> assembled 2,700 questions in mixed format and found that model accuracy does not correlate with molecular complexity, suggesting memorization. ChemLLMBench<sup><a href="#ref10">10</a></sup> reported that LLMs are "not competitive" on name prediction (8% accuracy) and score 40% below Chemformer on retrosynthesis. ChemEval<sup><a href="#ref11">11</a></sup> found that general-purpose LLMs excel at literature comprehension but fail on advanced chemical knowledge tasks. ChemPro<sup><a href="#ref5">5</a></sup> documented a 21-point accuracy drop from elementary to competition-level questions, with top models capping at 74-76%. GPQA<sup><a href="#ref6">6</a></sup> constructed questions where even PhD domain experts achieve only 65-74%, establishing a ceiling for lookup-based approaches. These benchmarks share common limitations: predominant use of multiple-choice format, emphasis on knowledge recall over reasoning, and no evaluation of reasoning processes.
+</p>
+
+<h3>2.2 Reasoning-Focused Benchmarks</h3>
+
+<p>
+  A recent wave of benchmarks has begun addressing the reasoning gap. ether0<sup><a href="#ref7">7</a></sup> introduced verifiable molecular rewards across 640,000 problems where all answers are molecules, enabling automated evaluation -- but the tasks are limited to single-step transformations. ChemIQ<sup><a href="#ref3">3</a></sup> established short-answer format as a gold standard by quantifying the 10-fold inflation from MCQ. oMeBench<sup><a href="#ref8">8</a></sup> was the first to evaluate step-level mechanisms, revealing the products-versus-mechanisms gap (90% vs. 24%). ChemCoTBench<sup><a href="#ref12">12</a></sup> demonstrated that standard chain-of-thought distillation fails for chemistry, suggesting the domain requires specialized reasoning strategies. MolQuest<sup><a href="#ref13">13</a></sup> introduced an agentic paradigm where models iteratively request spectroscopic data. Synthegy<sup><a href="#ref14">14</a></sup> evaluated LLM-guided retrosynthesis with natural-language strategy descriptions.
+</p>
+
+<h3>2.3 MMP-Based Tools and Models</h3>
+
+<p>
+  Our benchmark builds on a tradition of using matched molecular pairs as the fundamental unit of medicinal chemistry reasoning. Awale and colleagues at Roche<sup><a href="#ref15">15</a></sup> performed exhaustive MMP extraction from ChEMBL, producing a frequency-ranked "playbook" of real medicinal chemistry transforms. Pan and colleagues at Merck<sup><a href="#ref16">16</a></sup> trained a ChemT5-based foundation model on 800,000+ MMPTs and used RAG retrieval to generate plausible analogs. Both efforts validate MMPs as the right unit of analysis. The gap they leave open is <em>understanding</em>: neither tests whether models comprehend <em>why</em> transforms have their effects, nor whether models can compose transforms into multi-step strategies.
+</p>
+
+<h3>2.4 Positioning</h3>
+
+<p>
+  ChemBench-ADME is, to our knowledge, the first benchmark that simultaneously (i) tests multi-step strategic reasoning rather than single-step transformations, (ii) uses open-ended format with hidden quantitative ground truth, (iii) evaluates reasoning quality rather than only answer correctness, and (iv) covers the full medicinal chemistry reasoning workflow from prediction through explanation to strategic planning.
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th>ChemBench-ADME</th>
+      <th>ether0</th>
+      <th>ChemIQ</th>
+      <th>oMeBench</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Format</td>
+      <td>Open-ended</td>
+      <td>MCQ-heavy</td>
+      <td>Short-answer</td>
+      <td>Open-ended</td>
+    </tr>
+    <tr>
+      <td>Multi-step reasoning</td>
+      <td>Yes (3 task types)</td>
+      <td>No</td>
+      <td>No</td>
+      <td>Partial</td>
+    </tr>
+    <tr>
+      <td>Verifiable ground truth</td>
+      <td>Yes (MMP data)</td>
+      <td>Yes (reactions)</td>
+      <td>Yes (expert)</td>
+      <td>Yes (textbook)</td>
+    </tr>
+    <tr>
+      <td>ADME / drug design focus</td>
+      <td>Yes</td>
+      <td>Minimal</td>
+      <td>No</td>
+      <td>No</td>
+    </tr>
+    <tr>
+      <td>Strategic reasoning</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>No</td>
+      <td>No</td>
+    </tr>
+  </tbody>
+</table>
+<div class="caption"><strong>Table 1.</strong> Comparison of ChemBench-ADME with recent reasoning-focused chemistry benchmarks.</div>
+
+<!-- ============================================================ -->
+<!-- 3. BENCHMARK DESIGN -->
+<!-- ============================================================ -->
+<h2>3. Benchmark Design</h2>
+
+<h3>3.1 Data Source</h3>
+
+<p>
+  All tasks are constructed from the MMP-ADME Database, a companion resource containing 618,000+ matched molecular pairs extracted from ChEMBL, TDC, and BindingDB. A matched molecular pair consists of two molecules that differ by a single structural transformation at one site, with measured values for the same ADME endpoint. The database covers 14 endpoints spanning metabolic stability (microsomal clearance, microsomal half-life, hepatocyte clearance), CYP inhibition (3A4, 2D6, 2C9, 2C19, 1A2 in both binary classification and pIC50 potency formats), and related properties.
+</p>
+
+<p>
+  For each transform (defined as a specific structural change at a given molecular context radius), the database provides population-level statistics: mean and median property delta, standard deviation, and the number of supporting pairs. These statistics serve as quantitative ground truth. Tasks are constructed only from transforms with sufficient statistical support (minimum 5-15 pairs, depending on task type), ensuring that the expected answer reflects a genuine population-level structure-property relationship rather than a single-pair observation.
+</p>
+
+<h3>3.2 Design Principles</h3>
+
+<p>
+  The benchmark is built on six principles derived from the failures of prior benchmarks:
+</p>
+
+<ol>
+  <li><strong>Open-ended format.</strong> No multiple-choice questions. Tasks require free-text explanations, numeric predictions, or ranked lists. This avoids the approximately 10-fold MCQ inflation documented by ChemIQ.<sup><a href="#ref3">3</a></sup></li>
+  <li><strong>Hidden quantitative ground truth.</strong> Strategic tasks have correct answers derivable from transform population statistics, but these are not disclosed to the model. The model must reason from molecular structure to property effects.</li>
+  <li><strong>Statistical grounding.</strong> Every task answer is backed by multiple independent molecular contexts, not expert opinion or single experiments.</li>
+  <li><strong>Medicinal chemistry workflow fidelity.</strong> Tasks mirror real optimization decisions: predict, explain, rank, plan.</li>
+  <li><strong>Process evaluation.</strong> Following oMeBench's insight that correct answers can arise from incorrect reasoning,<sup><a href="#ref8">8</a></sup> we evaluate mechanistic explanations, not just predicted directions.</li>
+  <li><strong>Compositional reasoning.</strong> Multi-step tasks cannot be solved by treating each step independently; the optimal strategy depends on interactions between steps.</li>
+</ol>
+
+<h3>3.3 Task Taxonomy</h3>
+
+<p>
+  The benchmark comprises eight task types organized into two tiers. Tier 1 contains five single-step reasoning tasks that test different facets of medicinal chemistry knowledge. Tier 2 contains three multi-step "chess" tasks that require strategic composition of individual reasoning steps. The chess analogy is deliberate: just as a chess engine must look beyond the immediate move to evaluate positions several turns ahead, a medicinal chemist must consider how a structural change at one position constrains or enables future modifications at other positions.
+</p>
+
+<h4>Tier 1: Single-Step Reasoning</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Task Type</th>
+      <th>Description</th>
+      <th class="num">N</th>
+      <th>What It Tests</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="task-name">property_delta</td>
+      <td>Predict the property change from a structural transform and explain the mechanism</td>
+      <td class="num">350</td>
+      <td>Quantitative prediction + mechanistic reasoning</td>
+    </tr>
+    <tr>
+      <td class="task-name">series_completion</td>
+      <td>Given a congeneric series with SAR trend, predict the held-out compound's property</td>
+      <td class="num">350</td>
+      <td>SAR trend integration across multiple analogs</td>
+    </tr>
+    <tr>
+      <td class="task-name">transform_ranking</td>
+      <td>Rank structural transforms by expected improvement on an endpoint</td>
+      <td class="num">189</td>
+      <td>Relative comparison with multi-option reasoning</td>
+    </tr>
+    <tr>
+      <td class="task-name">tradeoff_analysis</td>
+      <td>Analyze multi-endpoint effects of a single transform (e.g., clearance vs. CYP inhibition)</td>
+      <td class="num">100</td>
+      <td>Multi-property reasoning and tradeoff articulation</td>
+    </tr>
+    <tr>
+      <td class="task-name">transform_explain</td>
+      <td>Explain <em>why</em> a well-supported transform produces its observed effect</td>
+      <td class="num">452</td>
+      <td>Pure mechanistic reasoning; no prediction required</td>
+    </tr>
+  </tbody>
+</table>
+<div class="caption"><strong>Table 2.</strong> Tier 1 single-step reasoning tasks. N = number of tasks in the benchmark.</div>
+
+<h4>Tier 2: Multi-Step Strategic Reasoning</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Task Type</th>
+      <th>Description</th>
+      <th class="num">N</th>
+      <th>The "Chess" Angle</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="task-name">sacrifice_detection</td>
+      <td>Explain why a medicinal chemist accepted a worse intermediate in a two-step path</td>
+      <td class="num">150</td>
+      <td>Post-hoc reasoning about sacrifice moves</td>
+    </tr>
+    <tr>
+      <td class="task-name">strategic_planning</td>
+      <td>Choose the best two-step path when step-two effects are hidden</td>
+      <td class="num">150</td>
+      <td>Forward planning under uncertainty; greedy trap</td>
+    </tr>
+    <tr>
+      <td class="task-name">multi_objective_path</td>
+      <td>Navigate clearance / CYP inhibition tradeoffs across multiple steps</td>
+      <td class="num">46</td>
+      <td>Multi-objective sequential optimization</td>
+    </tr>
+  </tbody>
+</table>
+<div class="caption"><strong>Table 3.</strong> Tier 2 multi-step strategic reasoning tasks. These tasks cannot be solved correctly by treating each step independently.</div>
+
+<h3>3.4 Task Construction</h3>
+
+<p>
+  <strong>property_delta.</strong> A well-supported transform (minimum 5 pairs) is selected. The model is presented with compound A and its measured property value, plus the structural transform leading to compound B. It must predict B's property value and explain the mechanistic basis for the expected change. Ground truth is the actual measured delta plus the population mean delta across all pairs sharing this transform.
+</p>
+
+<p>
+  <strong>series_completion.</strong> A congeneric series of 4-10 compounds sharing a molecular core is identified. One compound is held out. The model is presented with the remaining compounds, their measured values, and the structural progression. It must predict the held-out compound's value, identify the SAR trend, and calibrate its confidence. This tests whether the model can integrate information across multiple analogs rather than reasoning from a single pair.
+</p>
+
+<p>
+  <strong>transform_ranking.</strong> An anchor molecule with 3-6 available transforms is selected, each with known population-level property effects. The model must rank these transforms by expected improvement. Ground truth is the ordering by observed mean delta. This tests relative rather than absolute reasoning.
+</p>
+
+<p>
+  <strong>tradeoff_analysis.</strong> Transforms with measured effects across three or more endpoints are identified. Some effects are beneficial, others detrimental. The model must provide a unified mechanistic explanation for why a single structural change produces different effects on different properties and articulate the tradeoff.
+</p>
+
+<p>
+  <strong>transform_explain.</strong> Highly consistent transforms (minimum 15 supporting pairs) with low variance are selected. The model is told the observed effect and asked to explain the mechanism, identify contexts where the effect might reverse, and predict edge cases. This is a pure reasoning task -- no prediction is required.
+</p>
+
+<p>
+  <strong>sacrifice_detection.</strong> Two-step paths A to B to C are constructed where A to B worsens the property but B to C more than compensates. Critically, different positions on the molecule are modified at each step, so the second step is not simply undoing the first. The model is presented with the full path and asked to explain why a medicinal chemist would accept intermediate B. This is post-hoc reasoning about sacrifice moves.
+</p>
+
+<p>
+  <strong>strategic_planning.</strong> A molecule is presented with multiple available two-step paths, each consisting of a first-step transform with known effects and a second-step transform whose effects are labeled "unknown -- you must predict from structure." The globally optimal path has a worse first step but a better total outcome. The task tests whether the model falls for the greedy trap of selecting the path with the best first step.
+</p>
+
+<p>
+  <strong>multi_objective_path.</strong> Transforms that improve clearance but worsen CYP inhibition (or vice versa) are identified, along with optional "fixing" transforms that resolve the conflict. The model must explain the mechanistic basis for the tradeoff and propose a navigation strategy.
+</p>
+
+<h3>3.5 Evaluation</h3>
+
+<p>
+  Each task is evaluated through two complementary methods. The primary evaluation uses an automated scoring rubric that checks for direction correctness (40 points), numeric accuracy (30 points), and reasoning depth (30 points), yielding grades of <em>good</em> (70+), <em>partial</em> (40-69), <em>weak</em> (1-39), or <em>poor</em> (0). For strategic tasks, the rubric additionally checks whether the model identified the globally optimal path versus the greedy path, and whether the reasoning correctly anticipated second-step effects.
+</p>
+
+<p>
+  The secondary evaluation uses an interactive HTML report with two-dimensional molecule visualizations (SVGs with MMP-highlighted modifications). Expert medicinal chemists rate each response on a five-point scale (excellent, good, acceptable, poor, wrong) and provide free-text comments. The evaluation interface persists ratings in local storage and exports results as JSON for analysis.
+</p>
+
+<!-- ============================================================ -->
+<!-- 4. EXPERIMENTS -->
+<!-- ============================================================ -->
+<h2>4. Experiments</h2>
+
+<h3>4.1 Models</h3>
+
+<p>
+  We report preliminary results on two frontier models from the Claude family: Claude Sonnet 4 (claude-sonnet-4-6) and Claude Opus 4 (claude-opus-4). Both were evaluated through the Anthropic API with default temperature settings, a maximum output length of 2,000 tokens, and a system prompt establishing a medicinal chemistry expert persona. All evaluations are single-shot with no few-shot examples.
+</p>
+
+<h3>4.2 Experimental Design</h3>
+
+<p>
+  We sampled 4 tasks per task type (32 total per model) for this preliminary evaluation. Tasks were drawn from the full benchmark of 1,787 items and held constant across models. Automated scoring was applied to all responses; expert evaluation of a subset is ongoing and will be reported in a subsequent version.
+</p>
+
+<p>
+  For the <code>strategic_planning</code> task type, we additionally compare two conditions: (i) step-two effects visible, where the model can see the measured property changes for both steps, and (ii) step-two effects hidden, where second-step effects are labeled as unknown and must be predicted from structure. This ablation isolates the strategic reasoning component from the property prediction component.
+</p>
+
+<!-- ============================================================ -->
+<!-- 5. RESULTS -->
+<!-- ============================================================ -->
+<h2>5. Results</h2>
+
+<h3>5.1 Overall Performance</h3>
+
+<p>
+  Table 4 presents the automated assessment scores for each task type and model. Both models achieve an overall score above 85%, but the aggregate masks substantial variation across task types. Three task types are solved perfectly by both models; two show moderate difficulty; and two -- <code>strategic_planning</code> and <code>transform_ranking</code> -- reveal meaningful capability gaps.
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Task Type</th>
+      <th class="num">Sonnet 4</th>
+      <th class="num">Opus 4</th>
+      <th class="num">Delta (O - S)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="task-name">multi_objective_path</td>
+      <td class="num">100</td>
+      <td class="num">100</td>
+      <td class="num"><span class="delta-zero">0</span></td>
+    </tr>
+    <tr>
+      <td class="task-name">sacrifice_detection</td>
+      <td class="num">100</td>
+      <td class="num">100</td>
+      <td class="num"><span class="delta-zero">0</span></td>
+    </tr>
+    <tr>
+      <td class="task-name">transform_explain</td>
+      <td class="num">100</td>
+      <td class="num">100</td>
+      <td class="num"><span class="delta-zero">0</span></td>
+    </tr>
+    <tr>
+      <td class="task-name">series_completion</td>
+      <td class="num">95</td>
+      <td class="num">100</td>
+      <td class="num"><span class="delta-pos">+5</span></td>
+    </tr>
+    <tr>
+      <td class="task-name">tradeoff_analysis</td>
+      <td class="num">87.5</td>
+      <td class="num">87.5</td>
+      <td class="num"><span class="delta-zero">0</span></td>
+    </tr>
+    <tr>
+      <td class="task-name">property_delta</td>
+      <td class="num">90</td>
+      <td class="num">80</td>
+      <td class="num"><span class="delta-neg">-10</span></td>
+    </tr>
+    <tr>
+      <td class="task-name">strategic_planning</td>
+      <td class="num">82.5</td>
+      <td class="num">65</td>
+      <td class="num"><span class="delta-neg">-17.5</span></td>
+    </tr>
+    <tr>
+      <td class="task-name">transform_ranking</td>
+      <td class="num">70</td>
+      <td class="num">55</td>
+      <td class="num"><span class="delta-neg">-15</span></td>
+    </tr>
+    <tr class="highlight">
+      <td><strong>Overall</strong></td>
+      <td class="num"><strong>90.6</strong></td>
+      <td class="num"><strong>85.9</strong></td>
+      <td class="num"><span class="delta-neg"><strong>-4.7</strong></span></td>
+    </tr>
+  </tbody>
+</table>
+<div class="caption"><strong>Table 4.</strong> Automated assessment scores (0-100) by task type for Claude Sonnet 4 and Claude Opus 4. N = 4 tasks per type. Delta is computed as Opus minus Sonnet; negative values indicate Sonnet outperformance.</div>
+
+<h3>5.2 Task Type Analysis</h3>
+
+<p>
+  The results reveal a clear stratification. <em>Explanation-oriented tasks</em> -- <code>multi_objective_path</code>, <code>sacrifice_detection</code>, and <code>transform_explain</code> -- are solved perfectly by both models. These tasks provide complete information and ask the model to reason about it; they test the ability to articulate chemical logic but not to predict unknown outcomes or to choose among alternatives.
+</p>
+
+<p>
+  <em>Prediction tasks</em> -- <code>series_completion</code>, <code>property_delta</code>, and <code>tradeoff_analysis</code> -- show moderate difficulty, with scores ranging from 80 to 100. These tasks require the model to make quantitative or directional predictions about property changes, drawing on its knowledge of structure-property relationships.
+</p>
+
+<p>
+  <em>Strategic and ranking tasks</em> -- <code>strategic_planning</code> and <code>transform_ranking</code> -- are the most difficult and show the largest gap between models. Sonnet outperforms Opus on both, with the largest absolute difference on <code>strategic_planning</code> (82.5 vs. 65, a 17.5-point gap). The <code>transform_ranking</code> task, which requires ordering multiple transforms by predicted efficacy, is the most difficult task for both models.
+</p>
+
+<h3>5.3 The Strategic Planning Gap</h3>
+
+<div class="key-finding">
+  <p>
+    <strong>Key finding.</strong> On the <code>strategic_planning</code> task, accuracy drops from 100% (when step-two effects are visible) to 82.5% for Sonnet and 65% for Opus (when step-two effects are hidden). This 17.5-35 percentage-point drop isolates the strategic reasoning component: models can evaluate a completed path but struggle to plan forward under uncertainty.
+  </p>
+</div>
+
+<p>
+  The <code>strategic_planning</code> task presents molecules with multiple available two-step optimization paths. The globally optimal path has a worse first step but a better total outcome -- a structure analogous to a sacrifice move in chess, where material is temporarily given up for a positional advantage. The "greedy trap" is the path with the best first step but a worse overall trajectory.
+</p>
+
+<p>
+  When step-two effects are visible (control condition), both models score 100% -- they can identify the better total path when all information is available. When step-two effects are hidden (experimental condition), performance degrades substantially. Most strikingly, Sonnet picked the correct (non-greedy) option in only 1 out of 4 tasks, and Opus in 0 out of 4. Yet both models <em>identified the greedy trap conceptually</em> in all 4 tasks -- they noted in their reasoning that the path with the best first step might not be globally optimal, discussed the possibility of sacrifice moves, and articulated the relevant chemical logic. Despite this correct conceptual analysis, when forced to commit to a choice, both models defaulted to the greedy option.
+</p>
+
+<p>
+  This dissociation between conceptual understanding and strategic execution is the central finding of the benchmark. It suggests that the reasoning gap is not one of chemical knowledge -- both models possess sufficient knowledge to identify the problem -- but one of <em>strategic commitment under uncertainty</em>. The models can reason about sacrifice moves in the abstract but cannot reliably execute them when the outcome is uncertain.
+</p>
+
+<h3>5.4 Model Comparison</h3>
+
+<p>
+  Contrary to naive expectations, the smaller model (Sonnet) outperforms the larger model (Opus) overall (90.6 vs. 85.9). Opus matches or exceeds Sonnet on explanation tasks and series completion, but underperforms on the three most discriminating tasks: <code>property_delta</code> (-10), <code>transform_ranking</code> (-15), and <code>strategic_planning</code> (-17.5). This pattern is consistent with the hypothesis that task-specific reasoning capabilities do not scale monotonically with model size, and that larger models may be more prone to the greedy trap -- possibly because they generate more elaborate justifications for the suboptimal choice.
+</p>
+
+<!-- ============================================================ -->
+<!-- 6. DISCUSSION -->
+<!-- ============================================================ -->
+<h2>6. Discussion</h2>
+
+<h3>6.1 What the Benchmark Reveals</h3>
+
+<p>
+  Three findings merit discussion. First, the perfect scores on explanation tasks (<code>transform_explain</code>, <code>sacrifice_detection</code>, <code>multi_objective_path</code>) confirm that frontier LLMs possess substantial declarative knowledge of ADME-relevant medicinal chemistry. They can articulate why a given structural change affects metabolic stability, why a chemist might accept a worse intermediate, and how clearance and CYP inhibition trade off mechanistically. This knowledge base, when combined with complete information, is sufficient for expert-level analysis.
+</p>
+
+<p>
+  Second, the strategic planning gap reveals that this declarative knowledge does not automatically compose into strategic competence. The chess analogy is apt: a player who can evaluate any given position accurately (explanation tasks) may still play poorly if they cannot search the game tree effectively (planning tasks). In the molecular optimization context, the "game tree" is the space of sequential structural modifications and their cumulative property effects. Models can evaluate completed branches but struggle to select among branches with partially hidden outcomes.
+</p>
+
+<p>
+  Third, the observation that models identify the greedy trap conceptually but still fall into it has implications for deployment. An LLM assistant that notes "the best first step may not lead to the globally optimal path" but then recommends the greedy option provides a false sense of thoroughness. The reasoning chain <em>looks</em> strategic -- it acknowledges tradeoffs and considers alternatives -- but the final recommendation is still locally optimal.
+</p>
+
+<h3>6.2 Implications for LLM-Assisted Drug Discovery</h3>
+
+<p>
+  These results bear directly on the growing use of LLMs as medicinal chemistry assistants. If models systematically favor greedy optimization paths, their recommendations during lead optimization may converge on local optima rather than exploring the more productive but initially counterintuitive structural modifications that experienced chemists pursue. The benchmark provides a concrete way to measure this tendency and to track whether future models improve on it.
+</p>
+
+<p>
+  More broadly, the task taxonomy suggests a framework for evaluating LLM readiness for different roles in drug discovery. Models that excel at Tier 1 tasks but fail at Tier 2 may be suitable for literature analysis and SAR summarization but not for lead optimization strategy. The tier structure makes this distinction measurable.
+</p>
+
+<h3>6.3 Limitations</h3>
+
+<p>
+  Several limitations qualify these findings. The preliminary evaluation uses only 4 tasks per type (32 total per model), and results at this sample size carry substantial uncertainty. Full-scale evaluation across the entire 1,787-task benchmark is required to establish robust estimates. The automated scoring rubric, while useful for rapid iteration, is a keyword-based proxy that cannot distinguish chemically coherent reasoning from fluent but incorrect explanations -- expert evaluation is essential for validating the automated scores.
+</p>
+
+<p>
+  The benchmark covers only ADME endpoints and does not include potency, selectivity, toxicity, or pharmacokinetic properties. This is an intentional scope limitation for the first version, but it means the benchmark does not capture the full complexity of multi-parameter optimization in drug discovery. The MMP framework also assumes approximate additivity of transform effects across molecular contexts; while the standard deviation of the population delta captures some context dependence, highly context-sensitive transforms may produce misleading ground truth.
+</p>
+
+<p>
+  All tasks use single-pass evaluation -- the model cannot ask clarifying questions, request additional data, or iterate on its answer. This is unrealistic relative to actual medicinal chemistry practice, where optimization is inherently iterative. Future versions may incorporate agentic evaluation in the style of MolQuest.<sup><a href="#ref13">13</a></sup>
+</p>
+
+<p>
+  Finally, ground truth quality depends on the number and diversity of supporting pairs. While we enforce minimum support thresholds, the population mean delta remains a noisy estimate of the true transform effect, particularly for transforms with high variance.
+</p>
+
+<h3>6.4 Future Directions</h3>
+
+<p>
+  Several extensions are planned. <em>Endpoint expansion</em> will add potency data from ChEMBL target-based assays, selectivity panels, and hERG liability. <em>Representation perturbation testing</em> will evaluate robustness by presenting the same tasks with randomized SMILES, SELFIES, and IUPAC name representations, probing whether models reason about molecular graphs or pattern-match on string representations. <em>Temporal out-of-distribution splits</em> will use publication date to ensure test transforms are genuinely novel to the model's training data. <em>Agentic evaluation</em> will allow models to request additional MMP data before answering, testing information-seeking strategies alongside reasoning. <em>Difficulty scaling</em> will systematically vary transform support, effect size, and number of competing options to construct difficulty curves for each task type.
+</p>
+
+<!-- ============================================================ -->
+<!-- 7. CONCLUSION -->
+<!-- ============================================================ -->
+<h2>7. Conclusion</h2>
+
+<p>
+  We have introduced ChemBench-ADME, a benchmark of 1,787 tasks across eight types that tests multi-step strategic reasoning in medicinal chemistry. The benchmark is grounded in 618,000+ experimentally validated matched molecular pairs, uses open-ended format to avoid MCQ inflation, and provides quantitative ground truth from population-level transform statistics.
+</p>
+
+<p>
+  The benchmark's central contribution is its "chess" tasks, which expose a specific and measurable gap in current frontier models: the ability to reason about strategic sacrifice moves in the abstract but the inability to execute them when forced to choose under uncertainty. Claude Sonnet 4 and Claude Opus 4 both score perfectly on explanation tasks where all information is provided, but performance on <code>strategic_planning</code> drops to 82.5% and 65% respectively when step-two effects are hidden. Both models identify the greedy trap in their reasoning but still fall into it.
+</p>
+
+<p>
+  This gap -- between declarative chemical knowledge and strategic chemical reasoning -- is precisely the capability that separates an LLM from a working medicinal chemist. The benchmark provides a concrete, reproducible way to measure it, and we release all code and data to enable the community to track progress.
+</p>
+
+<!-- ============================================================ -->
+<!-- REFERENCES -->
+<!-- ============================================================ -->
+<h2>References</h2>
+
+<div class="references">
+<ol>
+  <li id="ref1">
+    Jablonka, K. M., Schwaller, P., Ortega-Guerrero, A. &amp; Smit, B. Leveraging large language models for predictive chemistry. <em>Nat. Mach. Intell.</em> <strong>6</strong>, 161-169 (2024).
+  </li>
+  <li id="ref2">
+    Bran, A. M., Cox, S., Schilter, O., Baldassari, C., White, A. D. &amp; Schwaller, P. Augmenting large language models with chemistry tools. <em>Nat. Mach. Intell.</em> <strong>6</strong>, 525-535 (2024).
+  </li>
+  <li id="ref3">
+    ChemIQ: evaluating chemical reasoning in large language models. Preprint at <em>arXiv</em> 2505.07735 (2025).
+  </li>
+  <li id="ref4">
+    Mirza, A., Alampara, N., Kota, S. <em>et al.</em> Are large language models superhuman chemists? <em>Nat. Chem.</em> (2025). doi:10.1038/s41557-025-01815-x
+  </li>
+  <li id="ref5">
+    ChemPro: a comprehensive benchmark for evaluating LLM chemistry proficiency. Preprint (2026).
+  </li>
+  <li id="ref6">
+    Rein, D., Hou, B., Stickland, A. <em>et al.</em> GPQA: a graduate-level Google-proof Q&amp;A benchmark. Preprint at <em>arXiv</em> 2311.12022 (2024).
+  </li>
+  <li id="ref7">
+    ether0: verifiable chemistry tasks with automated molecular rewards. FutureHouse. Preprint at <em>arXiv</em> 2506.17238 (2025).
+  </li>
+  <li id="ref8">
+    oMeBench: step-level evaluation of organic reaction mechanisms. Preprint at <em>arXiv</em> 2510.07731 (2025).
+  </li>
+  <li id="ref9">
+    Mendez, D., Gaulton, A., Bento, A. P. <em>et al.</em> ChEMBL: towards direct deposition of bioassay data. <em>Nucleic Acids Res.</em> <strong>47</strong>, D930-D940 (2019).
+  </li>
+  <li id="ref10">
+    Guo, T., Nan, B., Liang, Z. <em>et al.</em> What can large language models do in chemistry? A comprehensive benchmark on eight tasks. In <em>Proc. NeurIPS Datasets and Benchmarks</em> (2023).
+  </li>
+  <li id="ref11">
+    ChemEval: a comprehensive multi-level chemical evaluation for large language models. Preprint (2024).
+  </li>
+  <li id="ref12">
+    ChemCoTBench: evaluating chain-of-thought reasoning for chemistry. Preprint at <em>arXiv</em> 2505.21318 (2025).
+  </li>
+  <li id="ref13">
+    MolQuest: an agentic evaluation benchmark for molecular science. Preprint at <em>arXiv</em> 2603.25253 (2026).
+  </li>
+  <li id="ref14">
+    Synthegy: LLM-guided retrosynthesis with natural language strategy. Preprint at <em>arXiv</em> 2503.08537 (2025).
+  </li>
+  <li id="ref15">
+    Awale, M., Hert, J., Guasch, L., Riniker, S. &amp; Schwaller, P. The medchem_moves dataset: matched molecular pairs from ChEMBL. <em>J. Chem. Inf. Model.</em> <strong>61</strong>, 1324-1335 (2021). doi:10.1021/acs.jcim.0c01143
+  </li>
+  <li id="ref16">
+    Pan, S., Xia, Y., Xu, M. <em>et al.</em> MMPT-RAG: matched molecular pair transform retrieval-augmented generation for molecular optimization. Preprint at <em>arXiv</em> 2602.16684 (2026).
+  </li>
+</ol>
+</div>
+
+</div><!-- .paper -->
+</body>
+</html>
