@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChemBench-ADME: Exploration Benchmark Summary</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fafaf8;
+    --fg: #1a1a1a;
+    --accent: #2563eb;
+    --accent2: #dc2626;
+    --accent3: #059669;
+    --muted: #6b7280;
+    --border: #e5e5e5;
+    --card-bg: #ffffff;
+    --highlight-bg: #eff6ff;
+    --warn-bg: #fef2f2;
+    --success-bg: #ecfdf5;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 24px;
+  }
+
+  h1, h2, h3 { font-family: 'Source Serif 4', serif; }
+
+  h1 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 8px;
+  }
+
+  .subtitle {
+    font-size: 1.1rem;
+    color: var(--muted);
+    margin-bottom: 32px;
+  }
+
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-top: 48px;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--fg);
+  }
+
+  h3 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin-top: 24px;
+    margin-bottom: 8px;
+  }
+
+  p { margin-bottom: 12px; }
+
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin: 16px 0;
+  }
+
+  .card-accent {
+    border-left: 4px solid var(--accent);
+  }
+
+  .card-warn {
+    background: var(--warn-bg);
+    border-left: 4px solid var(--accent2);
+  }
+
+  .card-success {
+    background: var(--success-bg);
+    border-left: 4px solid var(--accent3);
+  }
+
+  .quote {
+    font-family: 'Source Serif 4', serif;
+    font-size: 1.6rem;
+    font-weight: 600;
+    text-align: center;
+    padding: 32px;
+    margin: 24px 0;
+    color: var(--accent);
+    border-top: 2px solid var(--border);
+    border-bottom: 2px solid var(--border);
+  }
+
+  .stat-row {
+    display: flex;
+    gap: 16px;
+    margin: 16px 0;
+  }
+
+  .stat-box {
+    flex: 1;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+
+  .stat-box .number {
+    font-size: 2rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .stat-box .label {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  .stat-box.blue .number { color: var(--accent); }
+  .stat-box.red .number { color: var(--accent2); }
+  .stat-box.green .number { color: var(--accent3); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.92rem;
+  }
+
+  th, td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+
+  th {
+    font-weight: 600;
+    background: #f5f5f5;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .pass { color: var(--accent3); font-weight: 600; }
+  .fail { color: var(--accent2); font-weight: 600; }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.88em;
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  /* Flow diagram */
+  .flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin: 24px 0;
+    flex-wrap: wrap;
+  }
+
+  .flow-step {
+    background: var(--card-bg);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    text-align: center;
+    font-size: 0.88rem;
+    min-width: 120px;
+  }
+
+  .flow-step.active {
+    border-color: var(--accent);
+    background: var(--highlight-bg);
+  }
+
+  .flow-step.outcome-good {
+    border-color: var(--accent3);
+    background: var(--success-bg);
+  }
+
+  .flow-step.outcome-bad {
+    border-color: var(--accent2);
+    background: var(--warn-bg);
+  }
+
+  .flow-arrow {
+    font-size: 1.5rem;
+    color: var(--muted);
+    padding: 0 8px;
+  }
+
+  /* Comparison bars */
+  .bar-chart {
+    margin: 16px 0;
+  }
+
+  .bar-row {
+    display: flex;
+    align-items: center;
+    margin: 8px 0;
+    gap: 12px;
+  }
+
+  .bar-label {
+    width: 180px;
+    font-size: 0.88rem;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .bar-track {
+    flex: 1;
+    height: 28px;
+    background: #f0f0f0;
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 8px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: white;
+    transition: width 0.3s;
+  }
+
+  .bar-fill.blue { background: var(--accent); }
+  .bar-fill.red { background: var(--accent2); }
+  .bar-fill.green { background: var(--accent3); }
+  .bar-fill.gray { background: #9ca3af; }
+
+  /* Grid for 2x2 */
+  .grid-2x2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    max-width: 500px;
+    margin: 16px auto;
+    background: var(--border);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .grid-cell {
+    background: var(--card-bg);
+    padding: 16px;
+    text-align: center;
+  }
+
+  .grid-cell .delta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.3rem;
+    font-weight: 700;
+    margin: 4px 0;
+  }
+
+  .grid-cell .desc {
+    font-size: 0.82rem;
+    color: var(--muted);
+  }
+
+  .grid-cell.bad .delta { color: var(--accent2); }
+  .grid-cell.good .delta { color: var(--accent3); }
+
+  .section-label {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+
+  .page-break {
+    page-break-before: always;
+    margin-top: 48px;
+  }
+
+  /* Timeline */
+  .timeline {
+    position: relative;
+    margin: 20px 0 20px 20px;
+    padding-left: 24px;
+    border-left: 2px solid var(--border);
+  }
+
+  .timeline-item {
+    position: relative;
+    margin-bottom: 16px;
+    padding: 8px 12px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.88rem;
+  }
+
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -31px;
+    top: 14px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--border);
+    border: 2px solid var(--bg);
+  }
+
+  .timeline-item.highlight::before {
+    background: var(--accent3);
+  }
+
+  .timeline-item.skip::before {
+    background: var(--accent2);
+  }
+
+  .timeline-item .turn {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin: 16px 0;
+  }
+
+  .footer {
+    margin-top: 48px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 0.82rem;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  @media print {
+    body { padding: 20px; max-width: 100%; }
+    .page-break { page-break-before: always; }
+  }
+</style>
+</head>
+<body>
+
+<span class="section-label">ChemBench-ADME Project</span>
+<h1>Rational Optimizers, Not Curious Scientists</h1>
+<p class="subtitle">How LLMs fail at chemical exploration &mdash; and what it reveals about their reasoning</p>
+
+<div class="stat-row">
+  <div class="stat-box blue">
+    <div class="number">2,235</div>
+    <div class="label">Non-additive SAR cliffs discovered</div>
+  </div>
+  <div class="stat-box red">
+    <div class="number">0%</div>
+    <div class="label">Baseline discovery rate<br>(hard tasks)</div>
+  </div>
+  <div class="stat-box green">
+    <div class="number">100%</div>
+    <div class="label">With one-sentence nudge<br>(same tasks)</div>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<h2>1. The Problem: Population Statistics Mask Surprises</h2>
+
+<p>Matched molecular pair (MMP) databases tell you the <em>average</em> effect of a structural change across many molecules. But individual molecules can deviate dramatically due to non-additive SAR &mdash; where molecular context changes everything.</p>
+
+<div class="card card-accent">
+  <h3>What is a non-additive cliff?</h3>
+  <p>A structural transformation that is <strong>well-characterized</strong> in the MMP database (n &ge; 10 pairs, known mean &plusmn; std) but behaves as an <strong>extreme outlier</strong> (z &ge; 3&sigma;) on a specific molecule. The population statistics completely fail to predict what happens in this molecular context.</p>
+</div>
+
+<h3>Example: Cl&rarr;Br on CHEMBL563081</h3>
+
+<div class="stat-row">
+  <div class="stat-box">
+    <div class="number" style="color: var(--muted);">0.00</div>
+    <div class="label">Population mean delta<br>(n=44 pairs)</div>
+  </div>
+  <div class="stat-box green">
+    <div class="number">-1.94</div>
+    <div class="label">Actual delta on<br>this molecule</div>
+  </div>
+  <div class="stat-box red">
+    <div class="number">5.2&sigma;</div>
+    <div class="label">Standard deviations<br>from expected</div>
+  </div>
+</div>
+
+<p>A rational optimizer looking at population statistics would rank this transformation last &mdash; it looks completely neutral. Yet it produces the largest improvement of any available modification.</p>
+
+
+<!-- ============================================ -->
+<h2>2. The Exploration Task Design</h2>
+
+<p>We built an interactive benchmark where the model plays the role of a medicinal chemist optimizing a compound. It queries an MMP oracle and receives population statistics. One hidden outlier per task tests whether it explores beyond the statistics.</p>
+
+<div class="flow">
+  <div class="flow-step active">Model gets<br>starting molecule</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step">LIST_TRANSFORMS<br><small>sees pop stats</small></div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step">APPLY &lt;id&gt;<br><small>gets actual result</small></div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step">Reason &amp;<br>choose next</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step outcome-good">Find outlier?</div>
+</div>
+
+<div class="card">
+  <h3>Difficulty calibration: how "hidden" is the outlier?</h3>
+  <p>Each task is scored by where the outlier's population mean ranks among all available transforms. If the outlier has the <em>best</em> population mean, any optimizer finds it first (easy). If it ranks near the <em>bottom</em>, only a persistent explorer will reach it.</p>
+
+  <div class="bar-chart">
+    <div class="bar-row">
+      <div class="bar-label"><strong>Task 003</strong> (easy)</div>
+      <div class="bar-track"><div class="bar-fill green" style="width: 60%;">Rank 2/5 (40%)</div></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label"><strong>Task 001</strong> (moderate)</div>
+      <div class="bar-track"><div class="bar-fill blue" style="width: 44%;">Rank 4/9 (44%)</div></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label"><strong>Task 009</strong> (hard)</div>
+      <div class="bar-track"><div class="bar-fill red" style="width: 83%;">Rank 5/6 (83%)</div></div>
+    </div>
+  </div>
+  <p style="font-size: 0.85rem; color: var(--muted);">22 total tasks; 11 with well-hidden outliers (rank &gt; 50th percentile) form the core persistence test.</p>
+</div>
+
+
+<!-- ============================================ -->
+<div class="page-break"></div>
+<h2>3. The Key Finding: Identical Failure Across Models</h2>
+
+<p>We ran 4 tasks on both Claude Sonnet 4.6 and Claude Opus 4.6, each as a fresh agent with no prior context.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Task</th>
+      <th>Outlier</th>
+      <th>Hidden?</th>
+      <th>Sonnet</th>
+      <th>Opus</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>001</strong> &mdash; Cl&rarr;Br</td>
+      <td>z = -5.2</td>
+      <td>Moderate (44%)</td>
+      <td class="fail">FAIL &mdash; 3/9 tested</td>
+      <td class="fail">FAIL &mdash; 3/9 tested</td>
+    </tr>
+    <tr>
+      <td><strong>002</strong> &mdash; remove F</td>
+      <td>z = -4.5</td>
+      <td>Borderline (50%)</td>
+      <td class="pass">PASS &mdash; 6/6 tested</td>
+      <td class="pass">PASS &mdash; 6/6 tested</td>
+    </tr>
+    <tr>
+      <td><strong>003</strong> &mdash; cPr&rarr;Me</td>
+      <td>z = -3.9</td>
+      <td>Not hidden (40%)</td>
+      <td class="pass">PASS &mdash; 5/5 tested</td>
+      <td class="pass">PASS &mdash; 5/5 tested</td>
+    </tr>
+    <tr>
+      <td><strong>009</strong> &mdash; pyr&rarr;pyrim</td>
+      <td>z = -3.8</td>
+      <td>Very hidden (83%)</td>
+      <td class="fail">FAIL &mdash; 2/6 tested</td>
+      <td class="fail">FAIL &mdash; 2/6 tested</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="quote">"They're rational optimizers, not curious scientists."</div>
+
+<div class="card card-warn">
+  <h3>The failure pattern</h3>
+  <p><strong>Same transforms tested. Same order. Same stopping point.</strong> Both models:</p>
+  <ul style="margin: 8px 0 0 20px;">
+    <li>Cherry-pick the 2&ndash;3 transforms with the best population means</li>
+    <li>Stop after finding "good enough" improvements</li>
+    <li>Never test transforms with neutral or positive population means</li>
+    <li>Produce excellent mechanistic reasoning for what they <em>do</em> test</li>
+  </ul>
+</div>
+
+
+<!-- ============================================ -->
+<h2>4. Task 001 Walkthrough: What the Model Sees vs. Misses</h2>
+
+<p>9 transforms available. The model must optimize intrinsic clearance (lower is better).</p>
+
+<h3>What the population statistics show:</h3>
+<div class="bar-chart">
+  <div class="bar-row">
+    <div class="bar-label"><code>[7]</code> Me&rarr;OMe</div>
+    <div class="bar-track"><div class="bar-fill green" style="width: 54%; min-width: 40px;">-0.08</div></div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label"><code>[0,1]</code> Cl&rarr;F</div>
+    <div class="bar-track"><div class="bar-fill green" style="width: 53%; min-width: 40px;">-0.06</div></div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label"><code>[8]</code> Cl&rarr;Br</div>
+    <div class="bar-track"><div class="bar-fill gray" style="width: 50%; min-width: 40px;">0.00</div></div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label"><code>[6]</code> Me&rarr;Et</div>
+    <div class="bar-track"><div class="bar-fill red" style="width: 58%; min-width: 40px;">+0.15</div></div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label"><code>[5]</code> cPr&rarr;Cl</div>
+    <div class="bar-track"><div class="bar-fill red" style="width: 59%; min-width: 40px;">+0.18</div></div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label"><code>[2]</code> cPr&rarr;cBu</div>
+    <div class="bar-track"><div class="bar-fill red" style="width: 62%; min-width: 40px;">+0.23</div></div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label"><code>[4]</code> cPr&rarr;cHex</div>
+    <div class="bar-track"><div class="bar-fill red" style="width: 69%; min-width: 40px;">+0.38</div></div>
+  </div>
+</div>
+
+<div class="two-col">
+  <div>
+    <h3>Baseline (no nudge)</h3>
+    <div class="timeline">
+      <div class="timeline-item">
+        <span class="turn">Turn 1</span> &mdash; APPLY [0] Cl&rarr;F<br>
+        <small>Result: -0.33 (good, as expected)</small>
+      </div>
+      <div class="timeline-item">
+        <span class="turn">Turn 2</span> &mdash; APPLY [1] Cl&rarr;F<br>
+        <small>Result: -0.62 (even better)</small>
+      </div>
+      <div class="timeline-item">
+        <span class="turn">Turn 3</span> &mdash; APPLY [7] Me&rarr;OMe<br>
+        <small>Result: -0.16 (modest)</small>
+      </div>
+      <div class="timeline-item skip">
+        <span class="turn">Turn 4</span> &mdash; <strong>DONE</strong><br>
+        <small>Skipped 6 transforms including the outlier</small>
+      </div>
+    </div>
+    <p style="font-size: 0.88rem;"><strong>Coverage: 3/9 (33%)</strong><br>Best found: -0.62</p>
+  </div>
+
+  <div>
+    <h3>With nudge</h3>
+    <div class="timeline">
+      <div class="timeline-item">
+        <span class="turn">Turn 1</span> &mdash; APPLY [0] Cl&rarr;F
+      </div>
+      <div class="timeline-item">
+        <span class="turn">Turn 2</span> &mdash; APPLY [1] Cl&rarr;F
+      </div>
+      <div class="timeline-item">
+        <span class="turn">Turn 3</span> &mdash; APPLY [7] Me&rarr;OMe
+      </div>
+      <div class="timeline-item">
+        <span class="turn">Turn 4</span> &mdash; APPLY [6] Me&rarr;Et<br>
+        <small style="color: var(--accent);">Opposite of pop prediction!</small>
+      </div>
+      <div class="timeline-item highlight">
+        <span class="turn">Turn 5</span> &mdash; <strong>APPLY [8] Cl&rarr;Br</strong><br>
+        <small style="color: var(--accent3);">OUTLIER FOUND! &Delta; = -1.94 (5.2&sigma;)</small>
+      </div>
+      <div class="timeline-item">
+        <span class="turn">Turns 6&ndash;9</span> &mdash; Tests all remaining<br>
+        <small>Discovers cPr&rarr;cHex also gives -1.94</small>
+      </div>
+    </div>
+    <p style="font-size: 0.88rem;"><strong>Coverage: 9/9 (100%)</strong><br>Best found: -1.94</p>
+  </div>
+</div>
+
+
+<!-- ============================================ -->
+<div class="page-break"></div>
+<h2>5. The Prompt Ablation: One Sentence Changes Everything</h2>
+
+<div class="card card-accent">
+  <h3>The nudge (added to system prompt):</h3>
+  <p style="font-style: italic; font-size: 0.95rem;">"Population statistics reflect average behavior across many different molecules. Individual molecules can deviate dramatically from these averages due to specific structural context. A transform that looks neutral or unfavorable on average may be transformative for YOUR specific molecule. Do not skip transforms just because their population statistics look unpromising &mdash; test broadly before concluding."</p>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Task</th>
+      <th>Baseline (Sonnet)</th>
+      <th>With Nudge (Sonnet)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>001</strong> &mdash; 9 transforms</td>
+      <td class="fail">3/9 tested &mdash; FAIL</td>
+      <td class="pass">9/9 tested &mdash; PASS</td>
+    </tr>
+    <tr>
+      <td><strong>009</strong> &mdash; 6 transforms</td>
+      <td class="fail">2/6 tested &mdash; FAIL</td>
+      <td class="pass">6/6 tested &mdash; PASS</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="card card-success">
+  <h3>What this means</h3>
+  <ul style="margin: 8px 0 0 20px;">
+    <li><strong>The failure is prompt sensitivity, not capability.</strong> The model has excellent chemical reasoning &mdash; it just needs "permission" to explore.</li>
+    <li><strong>Cascade effect:</strong> Once nudged, encountering even one deviation from population predictions catalyzes exploration of all remaining transforms.</li>
+    <li><strong>Better science:</strong> The nudged model discovered richer SAR (e.g., cPr &lt; cBu &lt; cPent &lt; cHex clearance trend) &mdash; invisible to the satisficing model.</li>
+  </ul>
+</div>
+
+
+<!-- ============================================ -->
+<h2>6. Non-Additive SAR: The Underlying Phenomenon</h2>
+
+<p>We searched the full MMP database for transforms that behave as extreme outliers on specific molecules despite being well-characterized in the population.</p>
+
+<div class="stat-row">
+  <div class="stat-box blue">
+    <div class="number">2,235</div>
+    <div class="label">Non-additive cliffs<br>(z &ge; 3, n &ge; 10)</div>
+  </div>
+  <div class="stat-box">
+    <div class="number">14</div>
+    <div class="label">ADME endpoints<br>covered</div>
+  </div>
+  <div class="stat-box">
+    <div class="number">0.65</div>
+    <div class="label">Mean prediction error<br>(log units)</div>
+  </div>
+</div>
+
+<h3>How population statistics mask non-additivity</h3>
+<p>The same transforms look completely normal in the population but behave as extreme outliers on specific molecules:</p>
+
+<div class="two-col">
+  <div class="stat-box">
+    <div class="number" style="color: var(--muted);">+0.66</div>
+    <div class="label">Avg z-score in population<br>(looks normal)</div>
+  </div>
+  <div class="stat-box red">
+    <div class="number">-1.60</div>
+    <div class="label">Avg z-score on cliff molecules<br>(extreme outlier)</div>
+  </div>
+</div>
+
+
+<!-- ============================================ -->
+<h2>7. SAR Epistasis: When Modifications Interact</h2>
+
+<p>Beyond single-transform cliffs, we found <strong>36 synergistic quartets</strong> across 5 ADME endpoints: cases where two modifications each <em>worsen</em> a property alone but <em>improve</em> it together. The chemical equivalent of genetic epistasis.</p>
+
+<div class="grid-2x2">
+  <div class="grid-cell">
+    <div class="desc">Parent (A)</div>
+    <div class="delta" style="color: var(--fg);">baseline</div>
+  </div>
+  <div class="grid-cell bad">
+    <div class="desc">Change 1 only (B)</div>
+    <div class="delta">+0.3 worse</div>
+  </div>
+  <div class="grid-cell bad">
+    <div class="desc">Change 2 only (C)</div>
+    <div class="delta">+0.2 worse</div>
+  </div>
+  <div class="grid-cell good">
+    <div class="desc">Both changes (D)</div>
+    <div class="delta">-0.5 better!</div>
+  </div>
+</div>
+
+<p style="text-align: center; font-size: 0.88rem; color: var(--muted);">Additive prediction: +0.5 (worse). Actual: -0.5 (better). Free-Wilson model fails completely.</p>
+
+<div class="card">
+  <h3>Future task variant: "propose the combination"</h3>
+  <p>Give the model both individual results (each worsening the property). Ask whether it proposes trying both together anyway. Tests whether the model reasons about non-additive SAR or assumes Free-Wilson additivity.</p>
+</div>
+
+
+<!-- ============================================ -->
+<div class="page-break"></div>
+<h2>8. The Broader Benchmark: Task Taxonomy</h2>
+
+<p>The exploration tasks are one tier of a larger benchmark testing medicinal chemistry reasoning.</p>
+
+<div class="card" style="padding: 20px;">
+  <table>
+    <thead>
+      <tr>
+        <th>Tier</th>
+        <th>Task Type</th>
+        <th>What It Tests</th>
+        <th>~N</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td rowspan="5" style="vertical-align: top; font-weight: 600;">1. Single-step<br><small style="color: var(--muted); font-weight: 400;">Reasoning</small></td>
+        <td>property_delta</td>
+        <td>Predict property change + explain</td>
+        <td>350</td>
+      </tr>
+      <tr>
+        <td>series_completion</td>
+        <td>Interpolate within congeneric series</td>
+        <td>210</td>
+      </tr>
+      <tr>
+        <td>transform_ranking</td>
+        <td>Rank modifications by improvement</td>
+        <td>140</td>
+      </tr>
+      <tr>
+        <td>tradeoff_analysis</td>
+        <td>Multi-endpoint effects</td>
+        <td>50</td>
+      </tr>
+      <tr>
+        <td>transform_explain</td>
+        <td>Explain WHY a transform works</td>
+        <td>240</td>
+      </tr>
+      <tr style="background: var(--highlight-bg);">
+        <td rowspan="3" style="vertical-align: top; font-weight: 600;">2. Strategic<br><small style="color: var(--muted); font-weight: 400;">Multi-step</small></td>
+        <td>sacrifice_detection</td>
+        <td>Why was a worse intermediate accepted?</td>
+        <td>60</td>
+      </tr>
+      <tr style="background: var(--highlight-bg);">
+        <td>strategic_planning</td>
+        <td>Choose best 2-step path (step 2 hidden)</td>
+        <td>60</td>
+      </tr>
+      <tr style="background: var(--highlight-bg);">
+        <td>multi_objective_path</td>
+        <td>Navigate CLint/CYP tradeoffs</td>
+        <td>80</td>
+      </tr>
+      <tr style="background: var(--success-bg);">
+        <td style="vertical-align: top; font-weight: 600;">3. Interactive<br><small style="color: var(--muted); font-weight: 400;">Exploration</small></td>
+        <td>exploration</td>
+        <td>Persist through non-additive SAR</td>
+        <td>22</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+
+<!-- ============================================ -->
+<h2>9. Next Steps</h2>
+
+<div class="card">
+  <h3>Immediate</h3>
+  <ul style="margin: 8px 0 0 20px;">
+    <li>Run all 11 well-hidden exploration tasks across Sonnet, Opus, GPT-4o, Gemini</li>
+    <li>Systematic prompt ablation: vary nudge strength from none &rarr; subtle &rarr; explicit</li>
+    <li>Run static benchmark (Tiers 1&ndash;2) through multi-model comparison</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>Research questions</h3>
+  <ul style="margin: 8px 0 0 20px;">
+    <li><strong>Agentic frameworks:</strong> Does wrapping the model in a structured exploration protocol (e.g., "always test N transforms before concluding") improve discovery without prompt nudging?</li>
+    <li><strong>Epistasis quartets:</strong> Can models learn to propose combinations of individually-failing modifications? (36 examples across 5 endpoints)</li>
+    <li><strong>Fine-tuning signal:</strong> Could training on exploration tasks with non-additive rewards improve the model's natural curiosity?</li>
+    <li><strong>Cross-domain transfer:</strong> Does the satisficing pattern hold for non-chemistry optimization tasks with deceptive landscapes?</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>For the paper</h3>
+  <ul style="margin: 8px 0 0 20px;">
+    <li>Expert evaluation of static tasks (HTML report with chemist ratings)</li>
+    <li>Auto-assessment vs. expert agreement correlation</li>
+    <li>Representation perturbation (randomized SMILES) as memorization control</li>
+  </ul>
+</div>
+
+
+<div class="footer">
+  ChemBench-ADME &mdash; Built on 618K+ matched molecular pairs from ChEMBL &mdash; May 2026
+</div>
+
+</body>
+</html>
