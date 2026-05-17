@@ -3,4 +3,5 @@ __pycache__/
 *.pyo
 .DS_Store
 results/
-tasks/adme/creative_leaps/
+# Large extracted data JSONs (regenerable from extract_creative_leaps.py)
+tasks/adme/creative_leaps/*.json
