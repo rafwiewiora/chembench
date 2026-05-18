@@ -75,6 +75,12 @@ This suggests the failure is a shallow behavioral default, not a deep capability
 3. **Strategic planning**: Scores drop from ~100% (visible effects) to ~74% (hidden effects) — models default to greedy first-step selection.
 4. **SAR epistasis**: Found 36 "synergistic quartets" across ADME endpoints — two modifications that each worsen a property alone combine to improve it. The chemical equivalent of epistasis.
 
+## Beyond Single Queries: Multi-Agent Campaign Benchmarking
+
+ChemBench-ADME tests individual reasoning. But real drug design happens in **campaigns** — multi-day, multi-agent optimization efforts where a team of specialist LLM agents runs generative models, predicts ADME, docks compounds, and curates results around the clock, while a human expert steers the scientific strategy. We propose a companion benchmark framework for evaluating LLM agents on these campaign-level capabilities: scientific diagnosis under Pareto complexity, experimental design with proper controls, knowing when to stop, and learning from sparse human preferences.
+
+See [`docs/cadd_agent_benchmark.md`](docs/cadd_agent_benchmark.md) for the full proposal, including an honest account of what broke, why expert chemists are more essential (not less) with agent teams, and the "compression effect" on human cognitive load.
+
 ## Data
 
 All data is derived from public sources:
@@ -97,6 +103,7 @@ chembench/
 │   ├── exploration_summary.pdf        ← PDF version
 │   ├── paper.html                     ← formatted paper draft
 │   ├── results_viewer.html            ← interactive results browser
+│   ├── cadd_agent_benchmark.md        ← multi-agent campaign benchmark proposal
 │   └── background/                    ← AI-generated landscape analysis (unreviewed)
 │       ├── landscape.md               ← benchmark landscape survey
 │       └── benchmark_design.md        ← full 4-tier task taxonomy vision
