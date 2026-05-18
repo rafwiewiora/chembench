@@ -68,6 +68,251 @@ The hardest capability: recognizing when the problem framing itself is wrong. Wh
 
 **What makes this hard**: The agent has invested days of computation in the current approach. All its learned context is within that frame. Proposing "start over with a different scaffold" requires overriding both sunk-cost heuristics and the accumulated context.
 
+## Empirical Illustrations
+
+The following two diagrams are drawn from a real multi-week generative chemistry campaign. All proprietary details (target, compounds, scaffolds) are omitted; the strategic structure is what matters.
+
+### Figure 1: How the Agent Learned to Configure RL Scoring
+
+The campaign used a reinforcement-learning generative model with Pareto multi-objective optimization (~25 simultaneous objectives). The agent had to learn — through trial and error — how to configure the scoring stack to produce drug-like compounds. Each experiment taught a lesson that informed the next.
+
+```
+EXPERIMENT ARC: 14 RUNS OVER ~10 DAYS
+══════════════════════════════════════════════════════════════════════
+
+  Run 1: 25 soft Pareto objectives, no hard constraints
+  ──────────────────────────────────────────────────────
+  Result: MW and rotatable bonds drift unconstrained.
+          Pareto dilution across ~25 axes lets bad properties
+          survive on other axes.
+     │
+     │  LESSON 1: Soft scoring alone fails under Pareto dilution
+     ▼
+  Runs 3-4: Invent HARD GATES (binary filter plugins)
+  ──────────────────────────────────────────────────────
+  Add MW, RotBonds, AromaticRings as binary kill-switches.
+  Out-of-range = molecule invalidated (not just penalized).
+  Result: Properties stay in bounds. But run crashed (plugin bug).
+     │
+     │  LESSON 2: Hard gates work. Implementation is fragile.
+     ▼
+  Run 5: Add pharmacophore gate (donor reach 6-9 bonds)
+  ──────────────────────────────────────────────────────
+  Result: Pharmacophore enforced. But aromatic R-groups
+          collapse to ~0% (unnoticed for several runs).
+     │
+     ▼
+  Run 7: Try aggressive soft scoring for lipophilicity (w=5.0)
+  ──────────────────────────────────────────────────────
+  Result: FAILED. Even at 5× weight, soft sigmoid absorbed
+          by Pareto dilution across ~29 objectives. Property
+          median unmoved.
+     │
+     │  LESSON 3: Soft scoring CANNOT overcome Pareto dilution,
+     │  even with large weights and sharp transforms.
+     ▼
+  Run 8: Hard gate on lipophilicity + COLD START (from scratch)
+  ──────────────────────────────────────────────────────
+  Result: FAILED. Only 1-4 of 128 molecules per batch survive
+          the combined 5-gate filter stack. Agent starved —
+          the untrained prior can't find the feasible region.
+     │
+     │  LESSON 4: Cold start on a tight gate stack starves the
+     │  agent. The prior's hit rate is too low to bootstrap.
+     ▼
+  Run 8b: Hard gate + WARM START from Run 7's checkpoint
+  ──────────────────────────────────────────────────────
+  Result: SUCCESS. +1.85 unit shift in lipophilicity median.
+          Agent went from 42→86/128 survivors in 5 iterations.
+          The warm-start already knew the other gates;
+          the new gate was the one fresh constraint to learn.
+     │
+     │  LESSON 5: Warm-start + one new gate = working recipe.
+     │  The canonical pattern: hard FILTER + strong near-binary
+     │  soft scorer inside the gate.
+     ▼
+  Run 9: Add metabolic stability gate, warm from 8b
+  ──────────────────────────────────────────────────────
+  Result: SUCCESS. Stability regression reversed. 5 simultaneous
+          hard gates all held. CAMPAIGN DELIVERABLE declared.
+     │
+     │  LESSON 6: Hard gates are composable with proper
+     │  warm-start chains. The recipe generalizes.
+     ▼
+  Runs 10-10e: Try to reduce molecular weight below ~625
+  ──────────────────────────────────────────────────────
+  v10:  ceiling 580 → COLLAPSED (step too big)
+  v10b: ceiling 600 → COLLAPSED (still too aggressive)
+  v10c: ceiling 640 → clean exit but MW UNCHANGED at 625
+  v10d: anneal 640→580 → 100% filter-killed (0 valid)
+  v10e: w=20, k=100 ("nuclear option") → MW 625.7, IDENTICAL
+     │
+     │  LESSON 7: Some properties are TOPOLOGY-LOCKED.
+     │  MW is a coupled function of scaffold + pharmacophore +
+     │  ring constraints. The trick that worked for lipophilicity
+     │  (free parameter) does NOT generalize to MW (structural).
+     ▼
+  Run 13: Test whether 3D shape scoring drives MW up
+  ──────────────────────────────────────────────────────
+  Result: MW WORSE (687). Shape overlap rewards molecular volume →
+          bigger molecule = more overlap = higher shape score.
+          Reweighting MW can't break this correlation.
+     │
+     │  LESSON 8: A correlated Pareto objective cannot be
+     │  down-weighted away. Only the correlation SOURCE
+     │  can be removed.
+     ▼
+  Run 14: Remove shape-volume component, keep size-normalized shape
+  ──────────────────────────────────────────────────────
+  Result: MW improved by only 13 Da. But pharmacophore-donor
+          coverage HALVED (49% → 31%). The volume component
+          was accidentally HELPING donors via chain extension.
+     │
+     │  LESSON 9: Scoring components have unintended side effects.
+     │  Removing a "bad" component can break a "good" behavior
+     │  that was piggybacking on it.
+     ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │  ARC CLOSED after 14 runs.                              │
+  │  Run 9 remains the deliverable.                         │
+  │  Further improvement needs scaffold redesign,           │
+  │  not scoring adjustment.                                │
+  └─────────────────────────────────────────────────────────┘
+```
+
+**What the agent learned autonomously**: Lessons 1-6 and 8-9 — the full grammar of hard gates, warm-start chains, Pareto dynamics, and correlated objectives. These were discovered through systematic experimentation, with the agent designing each run as a controlled test of a specific hypothesis.
+
+**What the agent could NOT learn autonomously**: Lesson 7 — recognizing that molecular weight was structurally locked, not just hard to optimize. After 5 failed runs (10-10e), the agent kept proposing "one more parameter to try." It took human intervention to recognize the pattern and close the arc. This is Dimension 3 (Knowing When to Stop) in action.
+
+
+### Figure 2: Where the PI's Input Changed the Course
+
+The same campaign timeline, but showing only the moments where the human expert's intervention was essential. Each arrow (◄──) represents a decision the agents could not have made autonomously.
+
+```
+AGENT TIMELINE                          PI INTERVENTIONS
+═══════════════                         ════════════════
+
+Runs 1-5: Building the gate stack       
+  Agents iterating on scoring,          
+  learning hard-gate recipe...          
+          │                             
+          │                    ◄──────  "Just 1 compound from the rerun
+          │                             is below MW 650. Why?"
+          │                             ─────────────────────────────────
+          │                             [The PI noticed the MW problem
+          │                              from visual compound review in
+          │                              a 3D viewer. The agents had all
+          │                              the data but hadn't flagged it
+          │                              as anomalous — MW was "just
+          │                              another property" to them.]
+          │                             
+          ▼                             
+Run 7-8: Agent designs A/B experiment   
+  to test lipophilicity gate.           
+  WARM-STARTS from biased checkpoint.   
+          │                    ◄──────  "Use cold start, not warm —
+          │                             you need a clean comparison."
+          │                             ─────────────────────────────────
+          │                             [The PI caught an experimental
+          │                              design error that any bench
+          │                              scientist would catch: testing
+          │                              whether a bias exists by
+          │                              starting FROM the biased state.
+          │                              Dimension 2 in action.]
+          │                             
+          ▼                             
+Run 8b-9: Agent applies the fix,        
+  discovers composable gate recipe.     
+  Declares Run 9 as deliverable.        
+          │                             
+          ▼                             
+Runs 10-10e: Agent tries 5 approaches  
+  to reduce MW. All fail identically.   
+  Agent proposes "what if w=20?"        
+  Then "what about annealing?"          
+  Then "maybe from a different          
+  checkpoint?"                          
+          │                    ◄──────  "This is topology-locked.
+          │                             The scaffold defines a MW floor.
+          │                             Stop trying."
+          │                             ─────────────────────────────────
+          │                             [The PI recognized what 5 failed
+          │                              experiments meant: not "we
+          │                              haven't found the right setting"
+          │                              but "no setting exists." The
+          │                              agents would have run 5 more.
+          │                              Dimension 3 + 7 in action.]
+          │                             
+          ▼                             
+Cross-campaign curation: Agent builds   
+  a 250-compound showcase using         
+  maximum chemical diversity.           
+          │                    ◄──────  "Pure diversity is structurally
+          │                             blind. I want SAR STORIES,
+          │                             not maximum spread."
+          │                             ─────────────────────────────────
+          │                             [Round 1 rejected. The PI wanted
+          │                              thematic groupings that tell a
+          │                              medicinal chemistry narrative,
+          │                              not algorithmic coverage of
+          │                              chemical space. Dimension 5.]
+          │                             
+          ▼                             
+Agent rebuilds with 13 themes,          
+  iterates 3 rounds with critic loop.   
+          │                    ◄──────  "The R1 vector must have a
+          │                             linker + exactly ONE aromatic
+          │                             ring. Reject 0 or ≥2."
+          │                             ─────────────────────────────────
+          │                             [Structural SAR rule from
+          │                              domain expertise. Not derivable
+          │                              from the data the agents had.
+          │                              The PI's mental model of the
+          │                              binding site informed what
+          │                              "good chemistry" means here.]
+          │                             
+          ▼                             
+Agent labels compounds by which         
+  structural vector was modified,       
+  using run/file names as proxy.        
+          │                    ◄──────  "Those labels are WRONG. The
+          │                             run names don't match what was
+          │                             actually modified. Decompose
+          │                             the structure, don't parse
+          │                             filenames."
+          │                             ─────────────────────────────────
+          │                             [The PI caught a systematic
+          │                              classification error that
+          │                              had propagated through the
+          │                              entire compound database.
+          │                              48 "triple-modified" compounds
+          │                              were actually 34 single + 10
+          │                              double + 0 triple. This is
+          │                              Dimension 4 — shared state
+          │                              corruption from a small error.]
+          │                             
+          ▼                             
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  NET EFFECT: The agents ran 14 RL experiments, predicted ADME   │
+  │  on >60,000 compounds, docked thousands, curated selections,   │
+  │  and maintained a lab notebook — all autonomously.              │
+  │                                                                 │
+  │  The PI made ~6 critical interventions that each changed the    │
+  │  trajectory of the campaign. Without them, the agents would     │
+  │  still be running MW reduction experiments on a topology-locked  │
+  │  scaffold, with wrongly-labeled compound classes, showcasing    │
+  │  algorithmically diverse but chemically uninteresting sets.     │
+  │                                                                 │
+  │  The agent-to-PI ratio was ~6:1 (agents to human).             │
+  │  The cognitive-load ratio was inverted.                         │
+  └─────────────────────────────────────────────────────────────────┘
+```
+
+**The uncomfortable truth**: the agents did 95% of the *work* but the PI made 95% of the *decisions that mattered*. Every major course correction came from domain expertise, experimental intuition, or aesthetic judgment that the agents lacked. The agents were force multipliers, not replacements — and the multiplication only works when the force being multiplied is a seasoned medicinal chemist who can recognize topology locks, catch labeling errors, and articulate what "good chemistry" means for a specific project.
+
+This is why benchmarking agent-only performance misses the point. The interesting metric is the *human-agent system* — and the minimum expertise required to steer it effectively.
+
 ## Proposed Benchmark Structure
 
 ### Level 1: Operational Competence (no human input needed)
